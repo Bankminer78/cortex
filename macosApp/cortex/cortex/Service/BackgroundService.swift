@@ -57,7 +57,7 @@ class BackgroundService: @unchecked Sendable {
     // MARK: - Setup
     
     private func setupDefaultRules() {
-        // Add default Instagram scrolling rule
+        // Add default Instagram scrolling rule - closes the browser tab
         let instagramRule = CompiledRule(
             name: "Instagram Scrolling Limit",
             type: .timeWindow,
@@ -68,7 +68,10 @@ class BackgroundService: @unchecked Sendable {
             logicalOperator: .and,
             timeWindow: TimeWindowConfig(durationSeconds: 10, lookbackSeconds: 15, threshold: 2),
             actions: [
-                RuleAction(type: .popup, parameters: ["message": .string("You've been scrolling Instagram too long!")])
+                RuleAction(type: .closeBrowserTab, parameters: [
+                    "message": .string("Instagram tab was closed to help you stay focused. Consider taking a mindful break instead."),
+                    "showNotification": .bool(true)
+                ])
             ]
         )
         
@@ -449,6 +452,48 @@ class BackgroundService: @unchecked Sendable {
             )
             return .appSwitch(config)
             
+        case .motivationalLockScreen:
+            let title = extractStringParameter(ruleAction.parameters["title"]) ?? "✨ Focus Time"
+            let prompt = extractStringParameter(ruleAction.parameters["prompt"]) ?? "motivational_focus"
+            let duration = extractDoubleParameter(ruleAction.parameters["duration"]) ?? 300.0
+            let backgroundColor = extractStringParameter(ruleAction.parameters["backgroundColor"]) ?? "#FFB6C1"
+            let emojiIcon = extractStringParameter(ruleAction.parameters["emojiIcon"]) ?? "😊"
+            
+            let config = MotivationalLockScreenConfig(
+                title: title,
+                prompt: prompt,
+                duration: duration,
+                allowOverride: true,
+                blockedApps: [violation.triggerActivity.bundleId ?? ""],
+                backgroundColor: backgroundColor,
+                emojiIcon: emojiIcon
+            )
+            return .motivationalLockScreen(config)
+            
+        case .screenTimeShield:
+            let domains = extractArrayParameter(ruleAction.parameters["domains"]) ?? ["instagram.com"]
+            let duration = extractDoubleParameter(ruleAction.parameters["duration"]) ?? 300.0
+            let blockMessage = extractStringParameter(ruleAction.parameters["blockMessage"])
+            let allowOverride = extractBoolParameter(ruleAction.parameters["allowOverride"]) ?? false
+            
+            let config = ScreenTimeShieldConfig(
+                domains: domains,
+                duration: duration,
+                blockMessage: blockMessage,
+                allowOverride: allowOverride
+            )
+            return .screenTimeShield(config)
+            
+        case .closeBrowserTab:
+            let message = extractStringParameter(ruleAction.parameters["message"])
+            let showNotification = extractBoolParameter(ruleAction.parameters["showNotification"]) ?? true
+            
+            let config = CloseBrowserTabConfig(
+                message: message,
+                showNotification: showNotification
+            )
+            return .closeBrowserTab(config)
+            
         case .webhook:
             // Default webhook configuration
             let url = URL(string: "http://localhost:3000/webhook")!
@@ -488,5 +533,24 @@ class BackgroundService: @unchecked Sendable {
         default:
             return nil
         }
+    }
+    
+    private func extractBoolParameter(_ value: RuleValue?) -> Bool? {
+        if case .bool(let boolValue) = value {
+            return boolValue
+        }
+        return nil
+    }
+    
+    private func extractArrayParameter(_ value: RuleValue?) -> [String]? {
+        if case .array(let arrayValue) = value {
+            return arrayValue.compactMap { element in
+                if case .string(let stringValue) = element {
+                    return stringValue
+                }
+                return nil
+            }
+        }
+        return nil
     }
 }

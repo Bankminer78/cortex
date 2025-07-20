@@ -41,11 +41,14 @@ public enum RuleValue: Codable {
     case int(Int)
     case double(Double)
     case bool(Bool)
+    case array([RuleValue])
     
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         
-        if let stringValue = try? container.decode(String.self) {
+        if let arrayValue = try? container.decode([RuleValue].self) {
+            self = .array(arrayValue)
+        } else if let stringValue = try? container.decode(String.self) {
             self = .string(stringValue)
         } else if let intValue = try? container.decode(Int.self) {
             self = .int(intValue)
@@ -69,6 +72,8 @@ public enum RuleValue: Codable {
         case .double(let value):
             try container.encode(value)
         case .bool(let value):
+            try container.encode(value)
+        case .array(let value):
             try container.encode(value)
         }
     }
@@ -160,6 +165,9 @@ public enum ActionType: String, Codable {
     case llmPopup = "llm_popup"
     case notification = "notification"
     case block = "block"
+    case motivationalLockScreen = "motivational_lock_screen"
+    case screenTimeShield = "screen_time_shield"
+    case closeBrowserTab = "close_browser_tab"
     case webhook = "webhook"
     case log = "log"
     case browserBack = "browser_back"
@@ -298,6 +306,9 @@ class RuleEngine: RuleEngineProtocol {
             return compareNumbers(Double(fieldValue) ?? 0, condition.`operator`, value)
         case .bool(let value):
             return compareBools(Bool(fieldValue) ?? false, condition.`operator`, value)
+        case .array(_):
+            // Array comparison not supported for field conditions
+            return false
         }
     }
     

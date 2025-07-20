@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import SwiftUI
 import UserNotifications
 
 // MARK: - Action Types
@@ -9,10 +10,12 @@ public enum DispatchableAction {
     case llmPopup(LLMPopupConfig)
     case notification(NotificationConfig)
     case block(BlockConfig)
+    case motivationalLockScreen(MotivationalLockScreenConfig)
     case webhook(WebhookConfig)
     case log(LogConfig)
     case custom(CustomActionConfig)
     case screenTimeShield(ScreenTimeShieldConfig)
+    case closeBrowserTab(CloseBrowserTabConfig)
     case browserBack(BrowserBackConfig)
     case appSwitch(AppSwitchConfig)
 }
@@ -63,6 +66,32 @@ public struct LLMPopupConfig {
         self.timeout = timeout
         self.soundEnabled = soundEnabled
         self.contextImage = contextImage
+    }
+}
+
+public struct MotivationalLockScreenConfig {
+    let title: String
+    let prompt: String
+    let duration: TimeInterval
+    let allowOverride: Bool
+    let blockedApps: [String]
+    let backgroundColor: String
+    let emojiIcon: String
+    
+    public init(title: String = "✨ Focus Time",
+         prompt: String = "motivational_focus",
+         duration: TimeInterval = 300,
+         allowOverride: Bool = true,
+         blockedApps: [String] = [],
+         backgroundColor: String = "#FFB6C1", // Light Pink
+         emojiIcon: String = "😊") {
+        self.title = title
+        self.prompt = prompt
+        self.duration = duration
+        self.allowOverride = allowOverride
+        self.blockedApps = blockedApps
+        self.backgroundColor = backgroundColor
+        self.emojiIcon = emojiIcon
     }
 }
 
@@ -225,6 +254,16 @@ public struct ScreenTimeShieldConfig {
     }
 }
 
+public struct CloseBrowserTabConfig {
+    let message: String?
+    let showNotification: Bool
+    
+    public init(message: String? = nil, showNotification: Bool = true) {
+        self.message = message
+        self.showNotification = showNotification
+    }
+}
+
 public struct BrowserBackConfig {
     let popupMessage: String
     let targetUrl: String?
@@ -302,6 +341,7 @@ class ActionDispatcher: ActionDispatcherProtocol {
     private var activeBlocks: [String: Date] = [:] // bundleId -> block end time
     private let notificationCenter = UNUserNotificationCenter.current()
     private var llmMessageGenerator: ((String, CGImage?) async throws -> String)?
+    private var activeBlockingWindows: [String: NSWindow] = [:]
     
     init() {
         setupNotificationCategories()
@@ -321,6 +361,8 @@ class ActionDispatcher: ActionDispatcherProtocol {
             return await sendNotification(config)
         case .block(let config):
             return await blockApps(config)
+        case .motivationalLockScreen(let config):
+            return await showMotivationalLockScreen(config)
         case .webhook(let config):
             return await sendWebhook(config)
         case .log(let config):
@@ -329,6 +371,8 @@ class ActionDispatcher: ActionDispatcherProtocol {
             return await executeCustomAction(config)
         case .screenTimeShield(let config):
             return await executeScreenTimeShield(config)
+        case .closeBrowserTab(let config):
+            return await executeCloseBrowserTab(config)
         case .browserBack(let config):
             return await executeBrowserBack(config)
         case .appSwitch(let config):
@@ -386,6 +430,19 @@ class ActionDispatcher: ActionDispatcherProtocol {
     func switchToProductiveApp(targetApp: String? = nil) async -> ActionResult {
         let config = AppSwitchConfig(targetApp: targetApp ?? "Notion")
         return await executeAppSwitch(config)
+    }
+    
+    func showMotivationalFocusScreen(duration: TimeInterval = 300, blockedApps: [String] = []) async -> ActionResult {
+        let config = MotivationalLockScreenConfig(
+            title: "✨ Focus Time",
+            prompt: "motivational_focus",
+            duration: duration,
+            allowOverride: true,
+            blockedApps: blockedApps,
+            backgroundColor: "#FFB6C1", // Warm pink
+            emojiIcon: "😊"
+        )
+        return await showMotivationalLockScreen(config)
     }
     
     // MARK: - Popup Implementation
@@ -470,6 +527,123 @@ class ActionDispatcher: ActionDispatcherProtocol {
         }
         
         return try await generator(config.prompt, config.contextImage)
+    }
+    
+    // MARK: - Motivational Lock Screen Implementation
+    
+    /// Shows a beautiful motivational lock screen overlay
+    private func showMotivationalLockScreen(_ config: MotivationalLockScreenConfig) async -> ActionResult {
+        do {
+            // Generate motivational message with LLM
+            let motivationalMessage = try await generateMotivationalMessage(config: config)
+            
+            // Create the lock screen overlay window
+            let lockScreenWindow = createMotivationalLockScreenWindow(
+                title: config.title,
+                message: motivationalMessage,
+                backgroundColor: config.backgroundColor,
+                emojiIcon: config.emojiIcon,
+                allowOverride: config.allowOverride,
+                duration: config.duration
+            )
+            
+            // Block specified apps
+            if !config.blockedApps.isEmpty {
+                let blockConfig = BlockConfig(
+                    bundleIdentifiers: config.blockedApps,
+                    duration: config.duration,
+                    blockMessage: "App blocked during focus time"
+                )
+                let _ = await blockApps(blockConfig)
+            }
+            
+            // Show the window
+            await MainActor.run {
+                lockScreenWindow.makeKeyAndOrderFront(nil)
+                lockScreenWindow.level = .floating
+            }
+            
+            return ActionResult(
+                success: true,
+                metadata: [
+                    "lockScreenShown": true,
+                    "duration": config.duration,
+                    "blockedApps": config.blockedApps
+                ]
+            )
+            
+        } catch {
+            print("❌ Failed to show motivational lock screen: \(error)")
+            return ActionResult(success: false, error: error)
+        }
+    }
+    
+    /// Generates motivational message using LLM
+    private func generateMotivationalMessage(config: MotivationalLockScreenConfig) async throws -> String {
+        guard let generator = llmMessageGenerator else {
+            return "You've got this! Take a moment to breathe and refocus on what truly matters to you."
+        }
+        
+        // Use the prompt directly - if it looks like a prompt type, convert it, otherwise use as-is
+        let actualPrompt = createActualPrompt(from: config.prompt)
+        return try await generator(actualPrompt, nil)
+    }
+    
+    /// Creates actual LLM prompt - handles both direct prompts and prompt types
+    private func createActualPrompt(from input: String) -> String {
+        // If it's a known prompt type, convert it to a proper prompt
+        switch input {
+        case "motivational_focus":
+            return "Generate a brief, warm motivational message (1-2 sentences) to help someone refocus. Be encouraging and positive about reconnecting with their goals."
+        case "social_media_break":
+            return "Generate a gentle message encouraging someone to take a break from social media. Be non-judgmental and supportive about mindful technology use (1-2 sentences)."
+        default:
+            // If it's not a known type, treat it as a direct prompt
+            return input.isEmpty ? "Generate a short, encouraging message to help someone stay focused on their goals. Be warm and supportive in 1-2 sentences." : input
+        }
+    }
+    
+    /// Creates the lock screen window
+    private func createMotivationalLockScreenWindow(
+        title: String,
+        message: String,
+        backgroundColor: String,
+        emojiIcon: String,
+        allowOverride: Bool,
+        duration: TimeInterval
+    ) -> NSWindow {
+        // Create window that covers the screen
+        let screen = NSScreen.main ?? NSScreen.screens.first!
+        let screenFrame = screen.frame
+        
+        let window = NSWindow(
+            contentRect: screenFrame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        
+        window.isOpaque = false
+        window.backgroundColor = NSColor.clear
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        
+        // Create the content view
+        let contentView = MotivationalLockScreenView(
+            title: title,
+            message: message,
+            backgroundColor: backgroundColor,
+            emojiIcon: emojiIcon,
+            allowOverride: allowOverride,
+            duration: duration,
+            onDismiss: {
+                window.close()
+            }
+        )
+        
+        window.contentView = NSHostingView(rootView: contentView)
+        
+        return window
     }
     
     // MARK: - LLM Integration
@@ -706,90 +880,141 @@ class ActionDispatcher: ActionDispatcherProtocol {
     
     private func executeScreenTimeShield(_ config: ScreenTimeShieldConfig) async -> ActionResult {
         do {
-            // Use macOS Screen Time API to block domains
-            let screenTimeScript = createScreenTimeScript(domains: config.domains, duration: config.duration)
+            print("🛡️ Activating website shield for domains: \(config.domains)")
             
-            let process = Process()
-            process.launchPath = "/usr/bin/osascript"
-            process.arguments = ["-e", screenTimeScript]
-            
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            
-            try process.run()
-            process.waitUntilExit()
-            
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            
-            if process.terminationStatus == 0 {
-                print("🛡️ Screen Time shield activated for domains: \(config.domains)")
+            // Create a blocking overlay that covers the browser
+            await MainActor.run {
+                let blockingWindow = createBlockingWindow(config: config)
+                blockingWindow.makeKeyAndOrderFront(nil)
+                blockingWindow.level = .floating
                 
-                // Show notification about the shield
-                let _ = await sendNotification(NotificationConfig(
-                    title: "Website Shield Activated",
-                    body: config.blockMessage ?? "Distracting websites have been temporarily blocked for \(Int(config.duration/60)) minutes."
-                ))
-                
-                return ActionResult(
-                    success: true,
-                    metadata: [
-                        "blockedDomains": config.domains,
-                        "duration": config.duration,
-                        "scriptOutput": output
-                    ]
-                )
-            } else {
-                throw ActionDispatcherError.blockingFailed("Screen Time script failed: \(output)")
+                // Store window reference for later dismissal
+                activeBlockingWindows[config.domains.joined(separator: ",")] = blockingWindow
             }
             
+            // Auto-dismiss after duration (unless overridden)
+            if config.duration > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + config.duration) {
+                    self.dismissBlockingWindow(for: config.domains.joined(separator: ","))
+                }
+            }
+            
+            // Show notification about the shield
+            let _ = await sendNotification(NotificationConfig(
+                title: "🛡️ Website Shield Active",
+                body: config.blockMessage ?? "Distracting websites are temporarily blocked. Click 'Override' if you need access."
+            ))
+            
+            return ActionResult(
+                success: true,
+                metadata: [
+                    "blockedDomains": config.domains,
+                    "duration": config.duration,
+                    "blockType": "overlay"
+                ]
+            )
+            
         } catch {
-            print("❌ Screen Time shield failed: \(error)")
+            print("❌ Website shield failed: \(error)")
             return ActionResult(success: false, error: error)
         }
     }
     
-    private func createScreenTimeScript(domains: [String], duration: TimeInterval) -> String {
-        let domainList = domains.map { "\"\($0)\"" }.joined(separator: ", ")
-        let hours = Int(duration / 3600)
-        let minutes = Int((duration.truncatingRemainder(dividingBy: 3600)) / 60)
+    private func createBlockingWindow(config: ScreenTimeShieldConfig) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: NSScreen.main?.frame.width ?? 1920, height: NSScreen.main?.frame.height ?? 1080),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
         
-        return """
-        tell application "System Preferences"
-            activate
-            reveal pane "com.apple.preference.screentime"
-        end tell
+        window.backgroundColor = NSColor.black.withAlphaComponent(0.9)
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         
-        tell application "System Events"
-            tell process "System Preferences"
-                -- Navigate to App & Website Limits
-                click button "App & Website Limits" of group 1 of window 1
-                delay 2
-                
-                -- Add new limit
-                click button "+" of group 1 of window 1
-                delay 1
-                
-                -- Select websites
-                click button "Websites" of group 1 of window 1
-                delay 1
-                
-                -- Add specific domains (simplified approach)
-                repeat with domain in {\(domainList)}
-                    -- This is a simplified approach - actual implementation would need more specific UI automation
-                end repeat
-                
-                -- Set time limit
-                set value of text field 1 of group 1 of window 1 to "\(hours)"
-                set value of text field 2 of group 1 of window 1 to "\(minutes)"
-                
-                -- Save
-                click button "Add" of group 1 of window 1
-            end tell
-        end tell
-        """
+        // Create blocking view with override option
+        let hostingView = NSHostingView(rootView: WebsiteBlockingView(
+            domains: config.domains,
+            message: config.blockMessage ?? "This website is temporarily blocked",
+            allowOverride: config.allowOverride,
+            onOverride: { [weak self] in
+                self?.dismissBlockingWindow(for: config.domains.joined(separator: ","))
+            },
+            onDismiss: { [weak self] in
+                self?.dismissBlockingWindow(for: config.domains.joined(separator: ","))
+            }
+        ))
+        
+        window.contentView = hostingView
+        window.center()
+        
+        return window
     }
+    
+    private func dismissBlockingWindow(for key: String) {
+        DispatchQueue.main.async {
+            if let window = self.activeBlockingWindows[key] {
+                window.close()
+                self.activeBlockingWindows.removeValue(forKey: key)
+                print("🛡️ Website shield dismissed for: \(key)")
+            }
+        }
+    }
+    
+    // MARK: - Close Browser Tab Implementation
+    
+    private func executeCloseBrowserTab(_ config: CloseBrowserTabConfig) async -> ActionResult {
+        do {
+            print("🗂️ Closing current browser tab")
+            
+            // AppleScript to close the current Safari tab
+            let closeTabScript = """
+            tell application "Safari"
+                if (count of windows) > 0 then
+                    tell front window
+                        if (count of tabs) > 1 then
+                            close current tab
+                        else
+                            -- If it's the only tab, navigate to a blank page instead
+                            set URL of current tab to "about:blank"
+                        end if
+                    end tell
+                end if
+            end tell
+            """
+            
+            let process = Process()
+            process.launchPath = "/usr/bin/osascript"
+            process.arguments = ["-e", closeTabScript]
+            
+            try process.run()
+            process.waitUntilExit()
+            
+            if process.terminationStatus == 0 {
+                print("✅ Browser tab closed successfully")
+                
+                // Show notification if requested
+                if config.showNotification {
+                    let _ = await sendNotification(NotificationConfig(
+                        title: "Tab Closed",
+                        body: config.message ?? "Distracting tab was closed to help you stay focused."
+                    ))
+                }
+                
+                return ActionResult(
+                    success: true,
+                    metadata: ["action": "tab_closed"]
+                )
+            } else {
+                throw ActionDispatcherError.blockingFailed("Failed to close browser tab")
+            }
+            
+        } catch {
+            print("❌ Failed to close browser tab: \(error)")
+            return ActionResult(success: false, error: error)
+        }
+    }
+
     
     // MARK: - Browser Back Implementation
     
