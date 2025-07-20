@@ -354,7 +354,13 @@ extension ScreenCaptureManager {
             return nil
         }
         
-        let domain = url.host?.lowercased()
+        var domain = url.host?.lowercased()
+        
+        // Strip "www." prefix for consistent matching
+        if let unwrappedDomain = domain, unwrappedDomain.hasPrefix("www.") {
+            domain = String(unwrappedDomain.dropFirst(4))
+        }
+        
         print("🔍 Extracted domain: '\(domain ?? "nil")' from URL: '\(urlString)'")
         return domain
     }
