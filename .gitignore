@@ -1,0 +1,65 @@
+# Created by Gemini
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+### Python ###
+#
+# Virtual Environment
+venv/
+.venv/
+ENV/
+env/
+
+# Compiled Python files
+*.pyc
+__pycache__/
+
+# Environment variables
+.env
+
+### Xcode ###
+#
+# User-specific files & settings
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+
+# Build generated
+build/
+Build/
+DerivedData/
+
+# Swift Package Manager
+# Package.resolved can be committed to lock dependencies,
+# but it's often excluded to avoid merge conflicts.
+# Package.resolved
+.swiftpm/
+/iosApp/.swiftpm/
+
+# Carthage
+Carthage/Build
+Carthage/Checkouts
+
+### Other ###
+#
+# User-specific settings for other tools
+.claude/
+
+# If the screenshots directory is for temporary files, uncomment the line below
+# screenshots/
