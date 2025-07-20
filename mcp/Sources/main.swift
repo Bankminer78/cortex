@@ -66,6 +66,7 @@ server.withMethodHandler(CallTool.self) { params in
         )
 
     case "enter_focus_mode":
+    
     var focusModeActive = false
         if let apps = params.arguments?["apps"]?.arrayValue {
             print("Entering focus mode with apps: \(apps)")

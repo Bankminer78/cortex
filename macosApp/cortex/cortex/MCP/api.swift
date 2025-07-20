@@ -32,9 +32,7 @@ class ActivityTrackerMCPServer {
             return .error("invalid input")
         case "activate_focus_mode":
             self.focusModeActive = true
-            // enforce blocking immediately
             return .success(["status": "focus mode activated"])
-        // Add more tools as needed
         default:
             return .error("unknown tool")
         }
