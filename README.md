@@ -1,68 +1,133 @@
-# Tech Spec: AI Accountability App (Physical Device)
+# Cortex: AI-Powered Productivity Monitoring
 
-## 1. Overview
+## Overview
 
-This document outlines the technical specification for an AI-powered accountability application. The system uses a physical iOS device connected via USB to a macOS host. The iOS app periodically requests screenshots from the host, which are then analyzed on-device by a local LLM to determine if the user's activity aligns with their stated goals.
+Cortex is an AI-powered accountability application that monitors user activity and enforces productivity goals. The system captures screenshots, analyzes them using LLMs, and triggers interventions based on user-defined rules.
 
-## 2. System Architecture
+## Current Status
 
-The architecture consists of three main components communicating over a local USB-proxied network connection:
+**✅ Baseline Implementation Complete:**
+- Loop every 2s to capture foreground window → PNG
+- Store {timestamp, bundleId, activity_label} in SQLite database
+- Hard-coded rule: "If Instagram scrolling ≥ 10s → show popup"
+- OpenAI/OpenRouter integration for activity classification
+- Safari window capture with ScreenCaptureKit
 
-- **iOS App** → **USB Cable (via iproxy)** → **macOS Flask Server** → **xcrun devicectl** → **Screenshot**
+## Architecture
 
-## 3. Components
+The current system consists of:
+- **macOS App** (Swift/SwiftUI) - Main monitoring application
+- **Background Service** - Screenshot capture and LLM analysis
+- **SQLite Database** - Activity logging and rule storage
+- **LLM Integration** - OpenAI/OpenRouter for image classification
 
-### iOS Client Application
+## TODO: Development Roadmap
 
-- **Description:** The user-facing application responsible for setting goals, triggering screenshot requests, and processing the results.
-- **Language/Framework:** Swift, SwiftUI
+### Phase 1: Code Organization & Modularity 🏗️
+- [ ] **Refactor into modular components**
+  - [ ] Extract `LLMClient` module (OpenAI/OpenRouter/Local model switching)
+  - [ ] Extract `DatabaseManager` module (SQLite operations, migrations)
+  - [ ] Extract `ScreenCaptureManager` module (ScreenCaptureKit operations)
+  - [ ] Extract `RuleEngine` module (rule evaluation and triggers)
+  - [ ] Extract `ActionDispatcher` module (popups, notifications, blocking)
+  - [ ] Create `CortexSDK` framework for external integration
 
-**Key Responsibilities:**
+### Phase 2: Natural Language Rule Compiler 🤖
+- [ ] **Design rule compilation system**
+  - [ ] Create `RuleCompiler` module
+  - [ ] Design rule JSON schema (time windows, count triggers, AND/OR logic)
+  - [ ] Implement OpenAI integration for NL → JSON conversion
+  - [ ] Add rule validation and error handling
+  - [ ] Create rules database table
+- [ ] **Example transformations:**
+  - [ ] "Don't let me watch YouTube Shorts for more than 5 minutes per hour" → Time window rule
+  - [ ] "Block Instagram after 30 scrolls" → Count-based rule
+  - [ ] "No social media during work hours (9-5)" → Time-based rule
 
-- Maintain a Timer to trigger a request every N seconds.
-- Use `URLSession` to send a GET request to `http://localhost:8000/screenshot`.
-- Receive a JSON payload containing a Base64 encoded image.
-- Decode the image and perform on-device OCR (Vision) and LLM analysis.
-- **Configuration:** Requires `NSAllowsLocalNetworking` set to `true` in `Info.plist`.
+### Phase 3: Multi-App Monitoring 📱
+- [ ] **Extend activity monitoring**
+  - [ ] Monitor ALL foreground apps (not just Safari)
+  - [ ] Extract bundle IDs and app names
+  - [ ] Store app metadata in database
+  - [ ] Add domain detection for web browsers
+  - [ ] Implement lazy LLM classification (label initially NULL)
 
-### macOS Backend Server
+### Phase 4: Advanced Rule Engine ⚙️
+- [ ] **Implement flexible rule evaluation**
+  - [ ] Time window evaluator (`≥ N seconds in M seconds`)
+  - [ ] Count-based triggers (`scrolls > 30`)
+  - [ ] Boolean logic support (AND/OR combinations)
+  - [ ] Rule priority and conflict resolution
+  - [ ] Real-time rule evaluation after each DB insert
+- [ ] **Rule management UI**
+  - [ ] Add/edit/delete rules interface
+  - [ ] Rule testing and preview
+  - [ ] Rule performance monitoring
 
-- **Description:** A lightweight web server that listens for requests from the iOS app and orchestrates the screenshot process on the host machine.
-- **Language/Framework:** Python 3, Flask
+### Phase 5: Screen Time Integration 🔒
+- [ ] **macOS Screen Time SDK integration**
+  - [ ] Add `ManagedSettingsStore` for app blocking
+  - [ ] Implement shield overlays for blocked apps
+  - [ ] Add local notification system
+  - [ ] Create `ActionDispatcher.lock(bundleId)` API
+  - [ ] Create `ActionDispatcher.notify(text)` API
 
-**Key Responsibilities:**
+### Phase 6: External Action System 🌐
+- [ ] **Smithery integration**
+  - [ ] Design webhook system: `POST /smithery`
+  - [ ] Send context: `{goal, violation, screenshot}`
+  - [ ] Parse action responses: `send_email`, `post_tweet`, etc.
+  - [ ] Implement Mail API integration
+  - [ ] Implement AppleScript automation
+  - [ ] Add custom action plugin system
 
-- Expose a single endpoint: `GET /screenshot`.
-- Execute the `xcrun devicectl diagnostics screenshot` shell command to capture the screen of the connected device.
-- Read the resulting image file from disk.
-- Encode the image to Base64 and return it in a JSON response.
-- Clean up the temporary image file.
+### Phase 7: Local Model Integration 🏠
+- [ ] **Replace cloud models with local inference**
+  - [ ] Integrate Ollama for local model management
+  - [ ] Pull CogVLM-7B or LLaVA-Next-10B models
+  - [ ] Implement local LLM client (`localhost:11434`)
+  - [ ] Add cloud fallback (OpenRouter) when local unavailable
+  - [ ] Performance optimization for local inference
 
-### USB Proxy Service
+### Phase 8: Developer SDK 🛠️
+- [ ] **Package CortexSDK for external use**
+  - [ ] Create Swift Package Manager structure
+  - [ ] Expose `func addGoal(text: String)` - auto NL compilation
+  - [ ] Expose `func observeViolations(handler: (Violation) -> Void)`
+  - [ ] Add comprehensive documentation and examples
+  - [ ] Create sample integration apps
+  - [ ] Publish to Swift Package Index
 
-- **Description:** A command-line utility that forwards network traffic from the iOS device to the macOS host over the USB cable. This allows the app to use localhost to reach the server.
-- **Technology:** iproxy (from the tidevice Python package)
-- **Command:** `iproxy 8000 8000`
+### Phase 9: Testing & Polish ✨
+- [ ] **Comprehensive testing suite**
+  - [ ] Unit tests for all modules
+  - [ ] Integration tests for rule engine
+  - [ ] UI automation tests
+  - [ ] Performance benchmarking
+  - [ ] Memory leak detection
+- [ ] **User experience improvements**
+  - [ ] Onboarding flow
+  - [ ] Settings and preferences
+  - [ ] Activity dashboard and analytics
+  - [ ] Export/import configuration
 
-## 4. Data Flow
+### Phase 10: Distribution 🚀
+- [ ] **Prepare for release**
+  - [ ] App Store preparation (if applicable)
+  - [ ] Code signing and notarization
+  - [ ] User documentation
+  - [ ] Privacy policy and compliance
+  - [ ] Beta testing program
 
-1. The iOS app's Timer fires.
-2. The app sends a GET request to `http://localhost:8000/screenshot`.
-3. The iproxy service forwards this request over USB to the Flask server on the Mac.
-4. The Flask server executes `xcrun devicectl` to save a screenshot of the iPhone's screen to the Mac's disk.
-5. The server reads the image file, encodes it to Base64, and places it in a JSON object: `{"status": "success", "image": "<base64_string>"}`
-6. The server sends the JSON response back through the proxy to the app.
-7. The app decodes the Base64 string into a UIImage for on-device processing.
+## Quick Start
 
-## 5. Setup & Execution
+```bash
+# Current setup (baseline)
+cd macosApp/cortex
+open cortex.xcodeproj
+# Build and run in Xcode
+```
 
-- **Terminal 1:** Run the backend server: `python server.py`
-- **Terminal 2:** Run the USB proxy: `iproxy 8000 8000`
-- **Xcode:** Run the app on the connected physical device.
+## Architecture Notes
 
-## 6. Risks & Mitigations
-
-- **Performance:** The `xcrun devicectl` command can be slow.
-  - _Mitigation:_ Increase the timer interval for the demo (e.g., 15-20 seconds) to ensure the previous request completes.
-- **Device State:** Screenshot command may fail if the device is locked.
-  - _Mitigation:_ Ensure the device remains unlocked during the demo. The server should handle this error gracefully.
+The system is designed with modularity in mind. Each phase builds upon the previous one while maintaining clean separation of concerns. The ultimate goal is a plugin-based architecture where rules, actions, and monitoring can be extended by third-party developers.
