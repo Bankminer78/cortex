@@ -42,21 +42,37 @@ class BackgroundService: @unchecked Sendable {
     
     private func setupDefaultRules() {
         // Add default Instagram scrolling rule
-        let defaultRule = CompiledRule(
+        let instagramRule = CompiledRule(
             name: "Instagram Scrolling Limit",
             type: .timeWindow,
             conditions: [
-                RuleCondition(field: "activity", `operator`: .equal, value: .string("instagram_scrolling"))
+                RuleCondition(field: "activity", `operator`: .equal, value: .string("scrolling")),
+                RuleCondition(field: "domain", `operator`: .equal, value: .string("instagram.com"))
             ],
+            logicalOperator: .and,
             timeWindow: TimeWindowConfig(durationSeconds: 10, lookbackSeconds: 15, threshold: 2),
             actions: [
                 RuleAction(type: .popup, parameters: ["message": .string("You've been scrolling Instagram too long!")])
             ]
         )
         
+        // Add buying activity intervention rule - triggers if ANY buying activity detected in past 10 seconds
+        let buyingRule = CompiledRule(
+            name: "Amazon Buying Intervention",
+            type: .timeWindow,
+            conditions: [
+                RuleCondition(field: "activity", `operator`: .equal, value: .string("buying"))
+            ],
+            timeWindow: TimeWindowConfig(durationSeconds: 1, lookbackSeconds: 10, threshold: 1), // Any buying activity in past 10 seconds
+            actions: [
+                RuleAction(type: .browserBack, parameters: ["message": .string("Redirecting away from checkout to help you avoid impulse purchases")])
+            ]
+        )
+        
         do {
-            try ruleEngine.addRule(defaultRule)
-            print("✅ Default rules configured")
+            try ruleEngine.addRule(instagramRule)
+            try ruleEngine.addRule(buyingRule)
+            print("✅ Default rules configured: Instagram scrolling + Amazon buying intervention")
         } catch {
             print("❌ Failed to add default rules: \(error)")
         }
@@ -227,11 +243,16 @@ class BackgroundService: @unchecked Sendable {
             - "messaging" if they are in Instagram DMs/messages talking to friends
             - "scrolling" if they are browsing the feed, stories, or reels
             - "posting" if they are creating/uploading content
+
+            If this is Amazon, determine the specific activity:
+            - "browsing" if they are browsing or perusing the Amazon website
+            - "buying" if they are on the checkout page or are reviewing their cart
+
+
+            If this is none of the above, respond with:
+            - "other"
             
-            If this is NOT Instagram, respond with:
-            - "not_instagram"
-            
-            Respond with ONLY ONE WORD from these options: messaging, scrolling, posting, not_instagram
+            Respond with ONLY ONE WORD from these options: messaging, scrolling, posting, browsing, buying, other
             """
         } else {
             return """
@@ -239,7 +260,8 @@ class BackgroundService: @unchecked Sendable {
             
             Respond with ONE WORD describing the activity:
             - "productive" for work-related activities
-            - "browsing" for general browsing/reading
+            - "browsing" for looking through products on Amazon
+            - "buying" if they are on the checkout page or are reviewing their cart
             - "gaming" for games
             - "social" for social media activities  
             - "entertainment" for videos/movies
@@ -313,6 +335,12 @@ class BackgroundService: @unchecked Sendable {
             let message = "Rule violation: \(violation.rule.name) - \(violation.triggerActivity.activity)"
             let config = LogConfig(level: .warning, message: message)
             return .log(config)
+            
+        case .browserBack:
+            let message = extractStringParameter(ruleAction.parameters["message"]) ?? 
+                         "Redirecting away from potential distraction"
+            let config = BrowserBackConfig(popupMessage: message)
+            return .browserBack(config)
             
         case .webhook:
             // Default webhook configuration
