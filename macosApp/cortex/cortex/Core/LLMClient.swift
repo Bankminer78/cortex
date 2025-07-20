@@ -70,7 +70,6 @@ class LLMClient: LLMClientProtocol {
 
         if let openAIKey = getKey("OPENAI_API_KEY") {
             configure(provider: .openAI, apiKey: openAIKey)
-       
         } else  if let openRouterKey = getKey("OPENROUTER_API_KEY") {
             configure(provider: .openRouter, apiKey: openRouterKey)
         } else {
