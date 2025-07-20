@@ -559,10 +559,9 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
             
         case .browserBack:
             let message = extractStringParameter(ruleAction.parameters["message"])
-            let showPopup = extractBoolParameter(ruleAction.parameters["showPopup"]) ?? false
             let config = BrowserBackConfig(
                 popupMessage: message,
-                showPopup: showPopup
+                showPopup: true  // Always show popup now
             )
             return .browserBack(config)
             

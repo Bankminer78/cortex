@@ -329,7 +329,7 @@ public protocol ActionDispatcherProtocol {
     func lock(bundleId: String, duration: TimeInterval) async -> ActionResult
     func notify(title: String, body: String) async -> ActionResult
     func shieldWebsites(domains: [String], duration: TimeInterval) async -> ActionResult
-    func navigateBack(withMessage message: String?, showPopup: Bool) async -> ActionResult
+    func navigateBack(withMessage message: String?) async -> ActionResult
     func switchToProductiveApp(targetApp: String?) async -> ActionResult
     func setLLMMessageGenerator(_ generator: @escaping (String, CGImage?) async throws -> String)
     func showLLMGeneratedPopup(title: String, prompt: String, contextImage: CGImage?, style: PopupStyle) async -> ActionResult
@@ -425,8 +425,8 @@ class ActionDispatcher: ActionDispatcherProtocol {
         return await executeScreenTimeShield(config)
     }
     
-    func navigateBack(withMessage message: String? = nil, showPopup: Bool = false) async -> ActionResult {
-        let config = BrowserBackConfig(popupMessage: message, showPopup: showPopup)
+    func navigateBack(withMessage message: String? = nil) async -> ActionResult {
+        let config = BrowserBackConfig(popupMessage: message, showPopup: true)
         return await executeBrowserBack(config)
     }
     
@@ -996,17 +996,32 @@ class ActionDispatcher: ActionDispatcherProtocol {
             if process.terminationStatus == 0 {
                 print("✅ Browser tab closed successfully")
                 
-                // Show notification if requested
+                // Always show explanatory popup after executing the action
+                let explanationMessage = config.message ?? "I closed that tab to help you stay focused."
+                let popupConfig = PopupConfig(
+                    title: "Tab Closed",
+                    message: explanationMessage,
+                    style: .info,
+                    buttons: [.refocus, .dismiss]
+                )
+                
+                let popupResult = await showPopup(popupConfig)
+                
+                // Also send notification if requested (in addition to popup)
                 if config.showNotification {
                     let _ = await sendNotification(NotificationConfig(
                         title: "Tab Closed",
-                        body: config.message ?? "Distracting tab was closed to help you stay focused."
+                        body: explanationMessage
                     ))
                 }
                 
                 return ActionResult(
                     success: true,
-                    metadata: ["action": "tab_closed"]
+                    userResponse: popupResult.userResponse,
+                    metadata: [
+                        "action": "tab_closed",
+                        "popupShown": true
+                    ]
                 )
             } else {
                 throw ActionDispatcherError.blockingFailed("Failed to close browser tab")
@@ -1048,29 +1063,23 @@ class ActionDispatcher: ActionDispatcherProtocol {
             if process.terminationStatus == 0 {
                 print("🔙 Browser back navigation executed")
                 
-                var userResponse: PopupAction? = nil
-                var popupShown = false
+                // Always show explanatory popup after executing the action
+                let explanationMessage = config.popupMessage ?? "I redirected you away from that page to help you stay focused."
+                let popupConfig = PopupConfig(
+                    title: "Browser Redirected",
+                    message: explanationMessage,
+                    style: .info,
+                    buttons: [.refocus, .dismiss]
+                )
                 
-                // Show popup message only if requested
-                if config.showPopup, let message = config.popupMessage {
-                    let popupConfig = PopupConfig(
-                        title: "Navigation Redirected",
-                        message: message,
-                        style: .warning,
-                        buttons: [.refocus, .dismiss]
-                    )
-                    
-                    let popupResult = await showPopup(popupConfig)
-                    userResponse = popupResult.userResponse
-                    popupShown = true
-                }
+                let popupResult = await showPopup(popupConfig)
                 
                 return ActionResult(
                     success: true,
-                    userResponse: userResponse,
+                    userResponse: popupResult.userResponse,
                     metadata: [
                         "backNavigationSuccess": true,
-                        "popupShown": popupShown,
+                        "popupShown": true,
                         "triggerPhrases": config.triggerPhrases
                     ]
                 )
@@ -1123,27 +1132,32 @@ class ActionDispatcher: ActionDispatcherProtocol {
             }
             
             if success {
-                // Show optional message
-                if let message = config.switchMessage {
-                    let _ = await sendNotification(NotificationConfig(
-                        title: "App Switch",
-                        body: message
-                    ))
-                }
-                
-                // Force quit current app if requested
+                // Force quit current app if requested (do this before popup)
                 if config.forceQuit {
                     if let frontmostApp = NSWorkspace.shared.frontmostApplication {
                         frontmostApp.forceTerminate()
                     }
                 }
                 
+                // Always show explanatory popup after executing the action
+                let explanationMessage = config.switchMessage ?? "I switched you to \(launchedApp) to help you stay productive."
+                let popupConfig = PopupConfig(
+                    title: "App Switched",
+                    message: explanationMessage,
+                    style: .info,
+                    buttons: [.refocus, .dismiss]
+                )
+                
+                let popupResult = await showPopup(popupConfig)
+                
                 return ActionResult(
                     success: true,
+                    userResponse: popupResult.userResponse,
                     metadata: [
                         "launchedApp": launchedApp,
                         "targetApp": config.targetApp,
-                        "forceQuit": config.forceQuit
+                        "forceQuit": config.forceQuit,
+                        "popupShown": true
                     ]
                 )
             } else {
@@ -1219,8 +1233,8 @@ extension ActionDispatcher {
     
     /// Executes shopping intervention (back + popup + app switch)
     func executeShoppingIntervention() async -> ActionResult {
-        // 1. Navigate back without popup
-        let backResult = await navigateBack(withMessage: nil, showPopup: false)
+        // 1. Navigate back (popup will be shown automatically)
+        let backResult = await navigateBack(withMessage: "Detected shopping activity - redirected to help you save money!")
         
         // 2. Switch to productive app
         let switchResult = await switchToProductiveApp()
