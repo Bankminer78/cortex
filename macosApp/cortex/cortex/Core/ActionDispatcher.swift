@@ -6,6 +6,7 @@ import UserNotifications
 
 public enum DispatchableAction {
     case popup(PopupConfig)
+    case llmPopup(LLMPopupConfig)
     case notification(NotificationConfig)
     case block(BlockConfig)
     case webhook(WebhookConfig)
@@ -36,6 +37,32 @@ public struct PopupConfig {
         self.buttons = buttons
         self.timeout = timeout
         self.soundEnabled = soundEnabled
+    }
+}
+
+public struct LLMPopupConfig {
+    let title: String
+    let prompt: String
+    let style: PopupStyle
+    let buttons: [PopupButton]
+    let timeout: TimeInterval?
+    let soundEnabled: Bool
+    let contextImage: CGImage?
+    
+    public init(title: String, 
+         prompt: String, 
+         style: PopupStyle = .warning, 
+         buttons: [PopupButton] = [.refocus, .fiveMoreMinutes],
+         timeout: TimeInterval? = nil,
+         soundEnabled: Bool = true,
+         contextImage: CGImage? = nil) {
+        self.title = title
+        self.prompt = prompt
+        self.style = style
+        self.buttons = buttons
+        self.timeout = timeout
+        self.soundEnabled = soundEnabled
+        self.contextImage = contextImage
     }
 }
 
@@ -262,6 +289,8 @@ public protocol ActionDispatcherProtocol {
     func shieldWebsites(domains: [String], duration: TimeInterval) async -> ActionResult
     func navigateBack(withMessage message: String) async -> ActionResult
     func switchToProductiveApp(targetApp: String?) async -> ActionResult
+    func setLLMMessageGenerator(_ generator: @escaping (String, CGImage?) async throws -> String)
+    func showLLMGeneratedPopup(title: String, prompt: String, contextImage: CGImage?, style: PopupStyle) async -> ActionResult
 }
 
 // MARK: - ActionDispatcher Implementation
@@ -272,6 +301,7 @@ class ActionDispatcher: ActionDispatcherProtocol {
     private var customActionHandlers: [String: (CustomActionConfig) async -> ActionResult] = [:]
     private var activeBlocks: [String: Date] = [:] // bundleId -> block end time
     private let notificationCenter = UNUserNotificationCenter.current()
+    private var llmMessageGenerator: ((String, CGImage?) async throws -> String)?
     
     init() {
         setupNotificationCategories()
@@ -285,6 +315,8 @@ class ActionDispatcher: ActionDispatcherProtocol {
         switch action {
         case .popup(let config):
             return await showPopup(config)
+        case .llmPopup(let config):
+            return await showLLMPopup(config)
         case .notification(let config):
             return await sendNotification(config)
         case .block(let config):
@@ -395,6 +427,78 @@ class ActionDispatcher: ActionDispatcherProtocol {
             }
         }
     }
+    
+    /// Shows a popup with LLM-generated message based on the provided prompt
+    private func showLLMPopup(_ config: LLMPopupConfig) async -> ActionResult {
+        do {
+            // Get LLM client - we'll inject it rather than create it here to avoid import issues
+            let llmMessage = try await generateLLMMessage(config: config)
+            
+            // Create a regular popup config with the LLM-generated message
+            let popupConfig = PopupConfig(
+                title: config.title,
+                message: llmMessage,
+                style: config.style,
+                buttons: config.buttons,
+                timeout: config.timeout,
+                soundEnabled: config.soundEnabled
+            )
+            
+            return await showPopup(popupConfig)
+            
+        } catch {
+            print("❌ Failed to generate LLM message: \(error)")
+            
+            // Fallback to showing the prompt itself
+            let fallbackConfig = PopupConfig(
+                title: config.title,
+                message: "Error generating message. Prompt was: \(config.prompt)",
+                style: .critical,
+                buttons: config.buttons,
+                timeout: config.timeout,
+                soundEnabled: config.soundEnabled
+            )
+            
+            return await showPopup(fallbackConfig)
+        }
+    }
+    
+    /// Generates an LLM message based on the config
+    private func generateLLMMessage(config: LLMPopupConfig) async throws -> String {
+        guard let generator = llmMessageGenerator else {
+            return "LLM not configured. Prompt was: \(config.prompt)"
+        }
+        
+        return try await generator(config.prompt, config.contextImage)
+    }
+    
+    // MARK: - LLM Integration
+    
+    /// Sets the LLM message generator function for generating popup messages
+    /// - Parameter generator: Function that takes (prompt, optional image) and returns an LLM response
+    func setLLMMessageGenerator(_ generator: @escaping (String, CGImage?) async throws -> String) {
+        self.llmMessageGenerator = generator
+        print("🤖 LLM message generator configured for ActionDispatcher")
+    }
+    
+    /// Shows a popup with an LLM-generated message
+    /// - Parameters:
+    ///   - title: The popup title
+    ///   - prompt: The prompt to send to the LLM
+    ///   - contextImage: Optional image to provide context to the LLM
+    ///   - style: The popup style (default: warning)
+    /// - Returns: ActionResult with user response
+    func showLLMGeneratedPopup(title: String, prompt: String, contextImage: CGImage? = nil, style: PopupStyle = .warning) async -> ActionResult {
+        let config = LLMPopupConfig(
+            title: title,
+            prompt: prompt,
+            style: style,
+            contextImage: contextImage
+        )
+        return await showLLMPopup(config)
+    }
+    
+
     
     // MARK: - Notification Implementation
     

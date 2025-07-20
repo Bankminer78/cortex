@@ -27,6 +27,22 @@ class BackgroundService: @unchecked Sendable {
         // Initialize action dispatcher on main actor
         Task { @MainActor in
             self.actionDispatcher = ActionDispatcher()
+            
+            // Set up LLM message generator for ActionDispatcher
+            self.actionDispatcher.setLLMMessageGenerator { [weak self] prompt, image in
+                guard let self = self else { throw LLMError.missingAPIKey("Service deallocated") }
+                
+                // Always make an LLM call - we should now have the image context
+                if let image = image {
+                    print("🤖 Making LLM call with screenshot for popup message")
+                    let response = try await self.llmClient.analyze(image: image, prompt: prompt)
+                    return response.content
+                } else {
+                    // Fallback if no image is provided
+                    print("⚠️ No image provided to LLM popup - using fallback message")
+                    return "Take a moment to consider: does this purchase align with your values and financial goals? Retailers often use urgency and scarcity to trigger impulse buying. The 24-hour rule can help you make more mindful decisions."
+                }
+            }
         }
         
         // Add default rule
@@ -65,7 +81,10 @@ class BackgroundService: @unchecked Sendable {
             ],
             timeWindow: TimeWindowConfig(durationSeconds: 1, lookbackSeconds: 10, threshold: 1), // Any buying activity in past 10 seconds
             actions: [
-                RuleAction(type: .browserBack, parameters: ["message": .string("Redirecting away from checkout to help you avoid impulse purchases")])
+                RuleAction(type: .llmPopup, parameters: [
+                    "title": .string("💳 Mindful Spending Moment"),
+                    "prompt": .string("psychology_of_spending")
+                ])
             ]
         )
         
@@ -256,7 +275,7 @@ class BackgroundService: @unchecked Sendable {
             print("🔍 Debug - Found \(violations.count) rule violations")
             
             // Dispatch actions for violations
-            await handleRuleViolations(violations)
+            await handleRuleViolations(violations, captureResult: captureResult)
             
         } catch {
             print("❌ LLM processing failed: \(error)")
@@ -343,7 +362,7 @@ class BackgroundService: @unchecked Sendable {
         return screenCaptureManager.extractDomain(from: windowTitle)
     }
     
-    private func handleRuleViolations(_ violations: [RuleViolation]) async {
+    private func handleRuleViolations(_ violations: [RuleViolation], captureResult: CaptureResult) async {
         guard let actionDispatcher = actionDispatcher else {
             print("⚠️ ActionDispatcher not initialized yet")
             return
@@ -353,7 +372,7 @@ class BackgroundService: @unchecked Sendable {
             print("🚨 Processing violation: \(violation.rule.name)")
             
             for action in violation.rule.actions {
-                let dispatchableAction = convertToDispatchableAction(action, violation: violation)
+                let dispatchableAction = convertToDispatchableAction(action, violation: violation, captureResult: captureResult)
                 let result = await actionDispatcher.dispatch(dispatchableAction)
                 
                 if result.success {
@@ -365,7 +384,7 @@ class BackgroundService: @unchecked Sendable {
         }
     }
     
-    private func convertToDispatchableAction(_ ruleAction: RuleAction, violation: RuleViolation) -> DispatchableAction {
+    private func convertToDispatchableAction(_ ruleAction: RuleAction, violation: RuleViolation, captureResult: CaptureResult) -> DispatchableAction {
         switch ruleAction.type {
         case .popup:
             let message = extractStringParameter(ruleAction.parameters["message"]) ?? 
@@ -376,6 +395,21 @@ class BackgroundService: @unchecked Sendable {
                 style: .warning
             )
             return .popup(config)
+            
+        case .llmPopup:
+            let title = extractStringParameter(ruleAction.parameters["title"]) ?? "Mindful Moment"
+            let promptKey = extractStringParameter(ruleAction.parameters["prompt"]) ?? "generic"
+            
+            // Generate psychology of spending prompt for buying activity
+            let prompt = createSpendingPsychologyPrompt()
+            
+            let config = LLMPopupConfig(
+                title: title,
+                prompt: prompt,
+                style: .warning,
+                contextImage: captureResult.image  // Pass the screenshot to LLM for analysis
+            )
+            return .llmPopup(config)
             
         case .notification:
             let message = extractStringParameter(ruleAction.parameters["message"]) ?? 
@@ -432,6 +466,12 @@ class BackgroundService: @unchecked Sendable {
     
     private func saveDebugImage(_ image: CGImage) throws {
         let _ = try screenCaptureManager.saveImage(image, withPrefix: "cortex_debug")
+    }
+    
+    private func createSpendingPsychologyPrompt() -> String {
+        return """
+        You can see the user is about to make a purchase online. Create a funny and engaging message to help them think twice about their purchase.
+        """
     }
     
     private func extractStringParameter(_ value: RuleValue?) -> String? {

@@ -157,6 +157,7 @@ public struct RuleAction: Codable {
 
 public enum ActionType: String, Codable {
     case popup = "popup"
+    case llmPopup = "llm_popup"
     case notification = "notification"
     case block = "block"
     case webhook = "webhook"

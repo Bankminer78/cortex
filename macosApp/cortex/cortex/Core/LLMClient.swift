@@ -34,7 +34,7 @@ public protocol LLMClientProtocol {
 @available(macOS 14.0, *)
 class LLMClient: LLMClientProtocol {
     
-    private var currentProvider: LLMProvider = .openAI
+    private var currentProvider: LLMProvider = .openRouter
     private var apiKey: String?
     
     init() {
@@ -142,7 +142,7 @@ class LLMClient: LLMClientProtocol {
                     ]
                 ]
             ],
-            "max_tokens": 10
+            "max_tokens": 150
         ]
         
         let jsonData = try JSONSerialization.data(withJSONObject: payload)
