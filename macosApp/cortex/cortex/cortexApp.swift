@@ -32,7 +32,14 @@ struct cortexApp: App {
     // Create a single instance of GoalManager and BackgroundService
     // @StateObject ensures it's managed by SwiftUI
     @StateObject private var goalManager = GoalManager()
-    private let backgroundService = BackgroundService()
+    private let backgroundService: BackgroundService? = {
+        do {
+            return try BackgroundService()
+        } catch {
+            print("❌ Failed to initialize BackgroundService: \(error)")
+            return nil
+        }
+    }()
     
     var body: some Scene {
         WindowGroup {
@@ -57,6 +64,11 @@ struct cortexApp: App {
     // In AccountabilityAppApp.swift
 
     private func startBackgroundService() {
+    guard let backgroundService = backgroundService else {
+        print("❌ BackgroundService not initialized")
+        return
+    }
+    
     guard let goals = goalManager.loadGoals() else {
         print("Could not load goals to start background service.")
         return
