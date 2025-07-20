@@ -93,10 +93,11 @@ public struct CompiledRule: Codable {
     let actions: [RuleAction]
     let priority: Int
     let isActive: Bool
+    let detectionInstructions: String? // LLM-generated detection instructions for this rule
     
     enum CodingKeys: String, CodingKey {
             case id, name, type, conditions, actions, priority, isActive
-            case logicalOperator, timeWindow, countConfig, scheduleConfig
+            case logicalOperator, timeWindow, countConfig, scheduleConfig, detectionInstructions
         }
     
     public init(id: String = UUID().uuidString, 
@@ -109,7 +110,8 @@ public struct CompiledRule: Codable {
          scheduleConfig: ScheduleConfig? = nil,
          actions: [RuleAction],
          priority: Int = 0,
-         isActive: Bool = true) {
+         isActive: Bool = true,
+         detectionInstructions: String? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -121,6 +123,7 @@ public struct CompiledRule: Codable {
         self.actions = actions
         self.priority = priority
         self.isActive = isActive
+        self.detectionInstructions = detectionInstructions
     }
     
     public init(from decoder: Decoder) throws {
@@ -137,6 +140,7 @@ public struct CompiledRule: Codable {
             self.timeWindow = try container.decodeIfPresent(TimeWindowConfig.self, forKey: .timeWindow)
             self.countConfig = try container.decodeIfPresent(CountConfig.self, forKey: .countConfig)
             self.scheduleConfig = try container.decodeIfPresent(ScheduleConfig.self, forKey: .scheduleConfig)
+            self.detectionInstructions = try container.decodeIfPresent(String.self, forKey: .detectionInstructions)
             
             // Decode properties that might be missing, providing default values
             self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -251,6 +255,59 @@ class RuleEngine: RuleEngineProtocol {
     func getRules() -> [CompiledRule] {
         return ruleQueue.sync {
             Array(rules.values).filter { $0.isActive }.sorted { $0.priority > $1.priority }
+        }
+    }
+    
+    func getAllRules() -> [CompiledRule] {
+        return ruleQueue.sync {
+            Array(rules.values).sorted { $0.priority > $1.priority }
+        }
+    }
+    
+    func toggleRule(id: String) throws {
+        try ruleQueue.sync {
+            guard let rule = rules[id] else {
+                throw RuleEngineError.invalidRule("Rule with id \(id) not found")
+            }
+            
+            // Create a new rule with toggled active status
+            let updatedRule = CompiledRule(
+                id: rule.id,
+                name: rule.name,
+                type: rule.type,
+                conditions: rule.conditions,
+                logicalOperator: rule.logicalOperator,
+                timeWindow: rule.timeWindow,
+                countConfig: rule.countConfig,
+                scheduleConfig: rule.scheduleConfig,
+                actions: rule.actions,
+                priority: rule.priority,
+                isActive: !rule.isActive,
+                detectionInstructions: rule.detectionInstructions
+            )
+            
+            rules[id] = updatedRule
+            print("📜 Rule \(rule.name) \(updatedRule.isActive ? "enabled" : "disabled")")
+        }
+    }
+    
+    func getCombinedDetectionInstructions() -> String {
+        return ruleQueue.sync {
+            let activeRules = Array(rules.values).filter { $0.isActive }
+            let instructions = activeRules.compactMap { $0.detectionInstructions }
+            
+            if instructions.isEmpty {
+                return ""
+            }
+            
+            return instructions.joined(separator: "\n\n")
+        }
+    }
+    
+    func clearAllRules() {
+        ruleQueue.sync {
+            rules.removeAll()
+            print("🗑️ All rules cleared on app restart")
         }
     }
     

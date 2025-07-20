@@ -135,8 +135,16 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
                 do {
                     let compiledRule = try decoder.decode(CompiledRule.self, from: jsonData)
                     print("🔹 Decoded rule: \(compiledRule)")
+                    
+                    if let instructions = compiledRule.detectionInstructions {
+                        print("🎯 Rule includes detection instructions: \(instructions.prefix(100))...")
+                    } else {
+                        print("⚠️ Rule missing detection instructions")
+                    }
 
-                    // ... (rest of the function)
+                    // 3. Add the rule to the rule engine
+                    try ruleEngine.addRule(compiledRule)
+                    print("✅ Rule successfully compiled and added: \(compiledRule.name)")
                 } catch {
                     // Added more detailed error logging
                     if let decodingError = error as? DecodingError {
@@ -159,6 +167,39 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
             await setupRule(from: goal)
         }
     }
+    
+    // MARK: - Rule Management for UI
+    
+    func getAllRules() -> [CompiledRule] {
+        return ruleEngine.getAllRules()
+    }
+    
+    func toggleRule(id: String) throws {
+        try ruleEngine.toggleRule(id: id)
+    }
+    
+    func removeRule(id: String) throws {
+        try ruleEngine.removeRule(id: id)
+    }
+    
+    func addGoal(_ goal: String) async {
+        await setupRule(from: goal)
+        
+        // Start monitoring if this is the first active rule and service isn't already processing
+        let activeRules = getAllRules().filter { $0.isActive }
+        if !activeRules.isEmpty && !isProcessingLLM {
+            print("🔄 Starting monitoring loop with \\(activeRules.count) active rule(s)")
+            performTasks()
+        }
+    }
+    
+    func getCombinedDetectionInstructions() -> String {
+        return ruleEngine.getCombinedDetectionInstructions()
+    }
+    
+    func clearAllRulesOnStartup() {
+        ruleEngine.clearAllRules()
+    }
 
     func start() {
         stop()
@@ -168,12 +209,7 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
             await requestScreenCapturePermission()
         }
         
-        // COMMENTED OUT: Timer-based loop
-        // timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-        //     self?.performTasks()
-        // }
-        
-        // Start the first cycle manually
+        // Start the first cycle manually - subsequent cycles are triggered after LLM completion
         performTasks()
     }
     
@@ -196,8 +232,10 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
     }
 
     private func performTasks() {
-        guard !userGoal.isEmpty else {
-            print("No goal set. Skipping task.")
+        // Check if we have any active rules
+        let activeRules = getAllRules().filter { $0.isActive }
+        guard !activeRules.isEmpty else {
+            print("No active rules. Skipping monitoring cycle.")
             return
         }
         
@@ -327,27 +365,42 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
     }
     
     private func createActivityPrompt(for appInfo: AppInfo) -> String {
+        // Get dynamic detection instructions from active rules
+        let dynamicInstructions = getCombinedDetectionInstructions()
+        
         if appInfo.bundleIdentifier == "com.apple.Safari" {
-            return """
-            Look at this screenshot and identify what the user is doing. 
+            // Base prompt for Safari
+            var prompt = """
+            Look at this screenshot and identify what the user is doing.
             
-            If this is Instagram, determine the specific activity:
-            - "messaging" if they are in Instagram DMs/messages talking to friends
-            - "scrolling" if they are browsing the feed, stories, or reels
-            - "posting" if they are creating/uploading content
-
-            If this is Amazon, determine the specific activity:
-            - "browsing" if they are browsing or perusing the Amazon website
-            - "buying" if they are on the checkout page or are reviewing their cart
-
-            If this is YouTube, determine the specific activity:
-            - "watching" if they are watching videos, browsing recommended videos, or on YouTube
-            If this is none of the above, respond with:
-            - "other"
-            
-            Respond with ONLY ONE WORD from these options: messaging, scrolling, posting, browsing, buying, watching, other
             """
+            
+            // Add dynamic instructions from rules if available
+            if !dynamicInstructions.isEmpty {
+                print("🎯 Using dynamic detection instructions from \(ruleEngine.getRules().count) active rules")
+                prompt += dynamicInstructions + "\n\n"
+            } else {
+                print("⚠️ No active rules with detection instructions, using fallback detection")
+                // Fallback to basic hardcoded instructions if no rules are active
+                prompt += """
+                Basic activity detection:
+                - "browsing" for general web browsing
+                - "watching" for video content
+                - "social" for social media activities
+                - "shopping" for e-commerce activities
+                - "other" for anything else
+                
+                """
+            }
+            
+            prompt += """
+            Respond with ONLY ONE WORD describing the primary activity you observe.
+            """
+            
+            return prompt
+            
         } else if appInfo.bundleIdentifier == "com.apple.MobileSMS" {
+            // Messages app handling remains the same for now
             return """
             Look at this Messages screenshot carefully.
             
@@ -362,21 +415,18 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
             Respond with ONLY ONE WORD: X or messaging
             """
         } else {
+            // Generic app handling
             return """
             Look at this screenshot of the \(appInfo.localizedName ?? "application") app and identify what the user is doing.
             
             Respond with ONE WORD describing the activity:
             - "productive" for work-related activities
-            - "browsing" for looking through products on Amazon
-            - "buying" if they are on the checkout page or are reviewing their cart
-            - "watching" for YouTube videos or entertainment content
-            - "gaming" for games
+            - "browsing" for general browsing or exploration
+            - "entertainment" for videos/movies/games
             - "social" for social media activities  
-            - "entertainment" for videos/movies
             - "other" for anything else
             """
         }
-        
     }
     
     private func isActivityProductive(_ activity: String) -> Bool {
@@ -569,6 +619,21 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
         case .int(let intValue):
             return Double(intValue)
         default:
+            return nil
+        }
+    }
+    
+    private func extractBoolParameter(_ value: RuleValue?) -> Bool? {
+        guard case .bool(let boolValue) = value else { return nil }
+        return boolValue
+    }
+    
+    private func extractArrayParameter(_ value: RuleValue?) -> [String]? {
+        guard case .array(let arrayValue) = value else { return nil }
+        return arrayValue.compactMap { item in
+            if case .string(let stringValue) = item {
+                return stringValue
+            }
             return nil
         }
     }

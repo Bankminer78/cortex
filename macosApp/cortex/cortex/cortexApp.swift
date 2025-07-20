@@ -36,19 +36,22 @@ struct cortexApp: App {
                 OnboardingView(isOnboardingComplete: $isOnboardingComplete)
                     .environmentObject(backgroundService) // Pass the service to the view
             } else {
-                // Onboarding is done. Show a simple status view.
-                RunningView()
+                // Onboarding is done. Show the main rules management interface.
+                ContentView()
+                    .environmentObject(backgroundService)
+                    .frame(minWidth: 800, minHeight: 600)
                     .onAppear {
-                        // If the app was restarted and we have a saved goal,
-                        // re-configure and start the service automatically.
-                        if !userGoal.isEmpty {
-                            print("App restarted. Re-configuring service with saved goal: '\(userGoal)'")
-                            backgroundService.configure(with: userGoal)
-                            backgroundService.start()
-                        }
+                        // Clear all existing rules and goals on app restart
+                        print("🔄 App restart: Clearing all existing rules and resetting system")
+                        backgroundService.clearAllRulesOnStartup()
+                        userGoal = "" // Clear saved goal
+                        
+                        // Always start the service
+                        backgroundService.start()
                     }
             }
         }
+        .defaultSize(width: 900, height: 700)
     }
 }
 

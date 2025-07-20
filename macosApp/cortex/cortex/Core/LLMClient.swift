@@ -34,7 +34,7 @@ public protocol LLMClientProtocol {
 @available(macOS 14.0, *)
 class LLMClient: LLMClientProtocol {
     
-    private var currentProvider: LLMProvider = .openAI
+    private var currentProvider: LLMProvider = .openRouter
     private var apiKey: String?
     
     init() {
@@ -67,52 +67,44 @@ class LLMClient: LLMClientProtocol {
 
      private func autoConfigureProvider() {
         // Check for available API keys and configure accordingly
-
-        if let openAIKey = getKey("OPENAI_API_KEY") {
+        if let openAIKey = loadAPIKey("OPENAI_API_KEY") {
             configure(provider: .openAI, apiKey: openAIKey)
-        } else  if let openRouterKey = getKey("OPENROUTER_API_KEY") {
+        } else if let openRouterKey = loadAPIKey("OPENROUTER_API_KEY") {
             configure(provider: .openRouter, apiKey: openRouterKey)
         } else {
             // Fallback to local model
             configure(provider: .local(model: "llava"))
             print("⚠️ No API keys found, falling back to local model")
         }
-    
     }
     
-    
-    
-    private func getKey(_ keyName: String) -> String? {
-        // 1. Prioritize Environment Variable
-        if let envKey = ProcessInfo.processInfo.environment[keyName], !envKey.isEmpty {
-            print("🔑 Found API key for \(keyName) in environment variables.")
-            return envKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        // 2. Fallback to .env file bundled with the app
-        if let envPath = Bundle.main.path(forResource: ".env", ofType: nil) {
-            do {
-                let envContent = try String(contentsOfFile: envPath, encoding: .utf8)
-                let lines = envContent.components(separatedBy: .newlines)
-
-                for line in lines {
-                    // Ignore comments and empty lines
-                    if line.trimmingCharacters(in: .whitespacesAndNewlines).starts(with: "#") || line.isEmpty {
-                        continue
-                    }
-
-                    let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                    if parts.count == 2 && parts[0] == keyName {
-                        print("🔑 Found API key for \(keyName) in bundled .env file.")
-                        return String(parts[1])
-                    }
-                }
-            } catch {
-                print("⚠️ Could not read the bundled .env file: \(error)")
-            }
+    private func loadAPIKey(_ keyName: String) -> String? {
+        // Try environment variable first
+        if let envKey = ProcessInfo.processInfo.environment[keyName] {
+            return envKey.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         }
         
-        print("❌ API key for \(keyName) not found in environment variables or bundled .env file.")
+        // Try .env file
+        return loadEnvVariable(keyName)
+    }
+    
+    private func loadEnvVariable(_ key: String) -> String? {
+        let possiblePaths = [
+            Bundle.main.path(forResource: ".env", ofType: nil),
+            "/Users/niranjanbaskaran/git/cortex/macosApp/cortex/.env"
+        ]
+        
+        for path in possiblePaths {
+            guard let envPath = path,
+                  let envContent = try? String(contentsOfFile: envPath) else { continue }
+            
+            for line in envContent.components(separatedBy: .newlines) {
+                let parts = line.components(separatedBy: "=")
+                if parts.count == 2 && parts[0].trimmingCharacters(in: CharacterSet.whitespaces) == key {
+                    return parts[1].trimmingCharacters(in: CharacterSet.whitespaces)
+                }
+            }
+        }
         return nil
     }
     
@@ -338,28 +330,33 @@ class LLMClient: LLMClientProtocol {
 
         private func createRuleGenerationPrompt(for goal: String) -> String {
             return """
-            You are a rules engine assistant. Based on the user's goal, generate a JSON object representing a rule. The user's goal is: "\(goal)"
+            You are a rules engine assistant. Based on the user's goal, generate a JSON object representing a rule AND detection instructions. The user's goal is: "\(goal)"
 
             The JSON must follow this structure:
             {
               "name": "A concise name for the rule based on the user's goal",
               "type": "time_window",
               "conditions": [
-                { "field": "domain" | "activity", "operator": "equal", "value": "string_value" }
+                { "field": "domain" | "activity", "operator": "==", "value": "string_value" }
               ],
               "logicalOperator": "AND" | "OR",
               "timeWindow": { "durationSeconds": 1, "lookbackSeconds": 600, "threshold": 5 },
               "actions": [
                 { "type": "popup" | "browser_back" | "app_switch", "parameters": { "message": "A helpful message for the user.", "targetApp": "AppName" } }
-              ]
+              ],
+              "detectionInstructions": "Specific instructions for detecting activities related to this rule"
             }
 
             - For goals about websites (e.g., "youtube.com", "instagram.com"), use the "domain" field in lowercase.
-            - For goals about actions (e.g., "scrolling", "watching", "buying"), use the "activity" field.
-            - Analyze exceptions. For a goal like "don't scroll on instagram but messaging is fine", create a rule that targets `activity` == `scrolling` and `domain` == `instagram.com`, but does NOT block `messaging`.
+            - For goals about actions, create SPECIFIC activity categories rather than generic ones. Use descriptive names like "browsing_machine_learning", "watching_music", "scrolling_instagram" instead of just "browsing", "watching", "scrolling".
+            - Analyze exceptions. For a goal like "don't scroll on instagram but messaging is fine", create a rule that targets `activity` == `scrolling_instagram` and `domain` == `instagram.com`, but does NOT block `messaging_instagram`.
             - Choose a sensible action: 'browser_back' for immediately stopping an action, 'popup' for warnings, and 'app_switch' to redirect to a productive app like 'Notion'.
             - Set a reasonable timeWindow. For "don't let me use X", use a short lookbackSeconds (e.g., 10) and a low threshold (e.g., 1).
             - The action 'message' should be encouraging and relate to the user's goal.
+            - The detectionInstructions should provide specific visual guidance for identifying the target domain/activity in screenshots. Focus on visual elements, UI patterns, and content analysis rather than URL parsing.
+            - IMPORTANT: Create unique, specific activity names that match exactly what the user wants to control. The LLM should respond with these exact category names when analyzing screenshots.
+
+            IMPORTANT EXAMPLES:
 
             Example Goal: "don't scroll on instagram but messaging on instagram is fine"
             Example JSON:
@@ -367,14 +364,49 @@ class LLMClient: LLMClientProtocol {
                 "name": "Limit Instagram Scrolling",
                 "type": "time_window",
                 "conditions": [
-                    { "field": "domain", "operator": "equal", "value": "instagram.com" },
-                    { "field": "activity", "operator": "equal", "value": "scrolling" }
+                    { "field": "domain", "operator": "==", "value": "instagram.com" },
+                    { "field": "activity", "operator": "==", "value": "scrolling_instagram" }
                 ],
                 "logicalOperator": "AND",
                 "timeWindow": { "durationSeconds": 1, "lookbackSeconds": 10, "threshold": 1 },
                 "actions": [
-                    { "type": "popup", "parameters": { "message": .string("You wanted to avoid scrolling on Instagram. Let's focus!") } }
-                ]
+                    { "type": "popup", "parameters": { "message": "You wanted to avoid scrolling on Instagram. Let's focus!" } }
+                ],
+                "detectionInstructions": "Look for Instagram's distinctive visual elements: the camera icon, heart/like buttons, story circles at the top, and the characteristic grid or feed layout. If you see Instagram:\\n- Respond 'scrolling_instagram' if you see the main feed with posts, stories, or reels displayed\\n- Respond 'messaging_instagram' if you see direct message conversations with chat bubbles\\n- Respond 'posting_instagram' if you see content creation interfaces with camera/upload options"
+            }
+
+            Example Goal: "only allow r/MachineLearning subreddit on reddit"
+            Example JSON:
+            {
+                "name": "Restrict Reddit to ML Subreddit",
+                "type": "time_window", 
+                "conditions": [
+                    { "field": "domain", "operator": "==", "value": "reddit.com" },
+                    { "field": "activity", "operator": "==", "value": "browsing_other_subreddits" }
+                ],
+                "logicalOperator": "AND",
+                "timeWindow": { "durationSeconds": 1, "lookbackSeconds": 5, "threshold": 1 },
+                "actions": [
+                    { "type": "browser_back", "parameters": { "message": "Only r/MachineLearning allowed on Reddit!" } }
+                ],
+                "detectionInstructions": "Look for Reddit's distinctive orange/red branding and upvote/downvote arrows. If you see Reddit, examine the content and subreddit indicators:\\n- Check for 'r/MachineLearning' text in the subreddit name area\\n- Look for machine learning related posts, discussions about models, papers, datasets\\n- If you see r/MachineLearning content, respond 'browsing_machine_learning'\\n- If you see any other subreddit or non-ML content, respond 'browsing_other_subreddits'"
+            }
+
+            Example Goal: "don't watch youtube videos, only music is okay"
+            Example JSON:
+            {
+                "name": "YouTube Music Only",
+                "type": "time_window",
+                "conditions": [
+                    { "field": "domain", "operator": "==", "value": "youtube.com" },
+                    { "field": "activity", "operator": "==", "value": "watching_videos" }
+                ],
+                "logicalOperator": "AND", 
+                "timeWindow": { "durationSeconds": 1, "lookbackSeconds": 5, "threshold": 1 },
+                "actions": [
+                    { "type": "popup", "parameters": { "message": "Remember: only music on YouTube!" } }
+                ],
+                "detectionInstructions": "Look for YouTube's red play button and video interface. Analyze the video content and context:\\n- Respond 'watching_music' if you see music videos, album covers, artist names, music-related thumbnails, or playlists with song titles\\n- Respond 'watching_videos' if you see regular video content like vlogs, tutorials, entertainment, or non-music videos\\n- Look for visual cues like music notation, instruments, concert footage, or audio waveforms to identify music content"
             }
 
             Now, generate the JSON for the user's goal. Respond with ONLY the valid JSON object and nothing else.
