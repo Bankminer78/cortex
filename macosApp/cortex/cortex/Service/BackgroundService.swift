@@ -69,10 +69,26 @@ class BackgroundService: @unchecked Sendable {
             ]
         )
         
+        // Add YouTube watching intervention rule - switches to Notion when watching YouTube
+        let youtubeRule = CompiledRule(
+            name: "YouTube Watching Intervention",
+            type: .timeWindow,
+            conditions: [
+                RuleCondition(field: "activity", `operator`: .equal, value: .string("watching")),
+                RuleCondition(field: "domain", `operator`: .equal, value: .string("youtube.com"))
+            ],
+            logicalOperator: .and,
+            timeWindow: TimeWindowConfig(durationSeconds: 1, lookbackSeconds: 5, threshold: 1), // Any watching activity in past 5 seconds
+            actions: [
+                RuleAction(type: .appSwitch, parameters: ["targetApp": .string("Notion"), "message": .string("Switching to Notion to help you stay productive")])
+            ]
+        )
+        
         do {
             try ruleEngine.addRule(instagramRule)
             try ruleEngine.addRule(buyingRule)
-            print("✅ Default rules configured: Instagram scrolling + Amazon buying intervention")
+            try ruleEngine.addRule(youtubeRule)
+            print("✅ Default rules configured: Instagram scrolling + Amazon buying intervention + YouTube watching intervention")
         } catch {
             print("❌ Failed to add default rules: \(error)")
         }
@@ -204,8 +220,8 @@ class BackgroundService: @unchecked Sendable {
             // Determine productivity
             let productive = isActivityProductive(activity)
             
-            // Extract domain if it's a browser
-            let domain = extractDomain(from: captureResult.windowInfo?.title, appInfo: appInfo)
+            // Extract domain using new AppleScript method for Safari
+            let domain = await extractDomainFromSafari(appInfo: appInfo)
             
             // Create activity record
             let activityRecord = ActivityRecord(
@@ -216,12 +232,16 @@ class BackgroundService: @unchecked Sendable {
                 domain: domain
             )
             
+            // Debug logging
+            print("🔍 Debug - Activity: '\(activity)', Domain: '\(domain ?? "nil")', App: \(appInfo.localizedName ?? "Unknown")")
+            
             // Log to database
             let recordId = try databaseManager.logActivity(activityRecord)
             print("📊 Activity logged: ID=\(recordId)")
             
             // Evaluate rules
             let violations = try await ruleEngine.evaluateRules(for: activityRecord, with: databaseManager)
+            print("🔍 Debug - Found \(violations.count) rule violations")
             
             // Dispatch actions for violations
             await handleRuleViolations(violations)
@@ -248,11 +268,13 @@ class BackgroundService: @unchecked Sendable {
             - "browsing" if they are browsing or perusing the Amazon website
             - "buying" if they are on the checkout page or are reviewing their cart
 
+            If this is YouTube, determine the specific activity:
+            - "watching" if they are watching videos, browsing recommended videos, or on YouTube
 
             If this is none of the above, respond with:
             - "other"
             
-            Respond with ONLY ONE WORD from these options: messaging, scrolling, posting, browsing, buying, other
+            Respond with ONLY ONE WORD from these options: messaging, scrolling, posting, browsing, buying, watching, other
             """
         } else {
             return """
@@ -262,6 +284,7 @@ class BackgroundService: @unchecked Sendable {
             - "productive" for work-related activities
             - "browsing" for looking through products on Amazon
             - "buying" if they are on the checkout page or are reviewing their cart
+            - "watching" for YouTube videos or entertainment content
             - "gaming" for games
             - "social" for social media activities  
             - "entertainment" for videos/movies
@@ -275,6 +298,20 @@ class BackgroundService: @unchecked Sendable {
         return !unproductiveActivities.contains(activity)
     }
     
+    private func extractDomainFromSafari(appInfo: AppInfo) async -> String? {
+        guard appInfo.bundleIdentifier == "com.apple.Safari" else { return nil }
+        
+        // Use AppleScript to get the actual Safari URL
+        if let safariURL = await screenCaptureManager.getSafariCurrentURL() {
+            return screenCaptureManager.extractDomainFromURL(safariURL)
+        }
+        
+        // Fallback to legacy method if AppleScript fails
+        print("⚠️ AppleScript failed, falling back to window title parsing")
+        return screenCaptureManager.extractDomain(from: nil)
+    }
+    
+    @available(*, deprecated, message: "Use extractDomainFromSafari instead")
     private func extractDomain(from windowTitle: String?, appInfo: AppInfo) -> String? {
         guard appInfo.bundleIdentifier == "com.apple.Safari" else { return nil }
         return screenCaptureManager.extractDomain(from: windowTitle)
@@ -341,6 +378,16 @@ class BackgroundService: @unchecked Sendable {
                          "Redirecting away from potential distraction"
             let config = BrowserBackConfig(popupMessage: message)
             return .browserBack(config)
+            
+        case .appSwitch:
+            let targetApp = extractStringParameter(ruleAction.parameters["targetApp"]) ?? "Notion"
+            let message = extractStringParameter(ruleAction.parameters["message"])
+            let config = AppSwitchConfig(
+                targetApp: targetApp,
+                bundleId: "notion.id", // Default to Notion bundle ID
+                switchMessage: message
+            )
+            return .appSwitch(config)
             
         case .webhook:
             // Default webhook configuration

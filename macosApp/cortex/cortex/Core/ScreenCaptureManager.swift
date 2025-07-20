@@ -313,24 +313,84 @@ extension ScreenCaptureManager {
         return foregroundApp.bundleIdentifier == bundleId
     }
     
-    /// Gets domain from browser URL (if available in window title)
-    func extractDomain(from windowTitle: String?) -> String? {
-        guard let title = windowTitle else { return nil }
+    /// Gets the current URL from Safari using AppleScript - much more reliable than window title parsing
+    func getSafariCurrentURL() async -> String? {
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let script = """
+                tell application "Safari"
+                    try
+                        URL of document 1
+                    on error
+                        ""
+                    end try
+                end tell
+                """
+                
+                var error: NSDictionary?
+                if let scriptObject = NSAppleScript(source: script) {
+                    let output = scriptObject.executeAndReturnError(&error)
+                    
+                    if let error = error {
+                        print("🔍 AppleScript Error: \(error)")
+                        continuation.resume(returning: nil)
+                    } else {
+                        let urlString = output.stringValue ?? ""
+                        print("🔍 Safari URL from AppleScript: '\(urlString)'")
+                        continuation.resume(returning: urlString.isEmpty ? nil : urlString)
+                    }
+                } else {
+                    print("🔍 Failed to create AppleScript")
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+    
+    /// Extracts domain from a full URL string
+    func extractDomainFromURL(_ urlString: String) -> String? {
+        guard let url = URL(string: urlString) else {
+            print("🔍 Invalid URL: '\(urlString)'")
+            return nil
+        }
         
-        // Common patterns for extracting domains from browser window titles
-        let patterns = [
-            "https?://([^/]+)", // Extract domain from URL
-            "([^\\s]+\\.[a-z]{2,4})", // Domain pattern
+        let domain = url.host?.lowercased()
+        print("🔍 Extracted domain: '\(domain ?? "nil")' from URL: '\(urlString)'")
+        return domain
+    }
+    
+    /// Legacy method - kept for compatibility but now uses AppleScript for Safari
+    @available(*, deprecated, message: "Use getSafariCurrentURL() and extractDomainFromURL() instead")
+    func extractDomain(from windowTitle: String?) -> String? {
+        print("🔍 Legacy extractDomain called - consider upgrading to getSafariCurrentURL()")
+        
+        guard let title = windowTitle else { 
+            print("🔍 Domain Debug - No window title provided")
+            return nil 
+        }
+        
+        print("🔍 Domain Debug - Window title: '\(title)'")
+        
+        // Try title-based detection for popular sites as fallback
+        let titleMappings: [String: String] = [
+            "YouTube": "youtube.com",
+            "Instagram": "instagram.com", 
+            "Facebook": "facebook.com",
+            "Twitter": "twitter.com",
+            "Amazon": "amazon.com",
+            "Netflix": "netflix.com",
+            "Reddit": "reddit.com",
+            "TikTok": "tiktok.com"
         ]
         
-        for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-               let match = regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) {
-                let range = Range(match.range(at: 1), in: title)!
-                return String(title[range])
+        for (siteName, domain) in titleMappings {
+            if title.lowercased().contains(siteName.lowercased()) {
+                print("🔍 Domain Debug - Detected '\(domain)' from title containing '\(siteName)'")
+                return domain
             }
         }
         
+        print("🔍 Domain Debug - No domain found in title")
         return nil
     }
 }

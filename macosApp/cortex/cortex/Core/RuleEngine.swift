@@ -162,6 +162,7 @@ public enum ActionType: String, Codable {
     case webhook = "webhook"
     case log = "log"
     case browserBack = "browser_back"
+    case appSwitch = "app_switch"
 }
 
 // MARK: - Rule Violation
