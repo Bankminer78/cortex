@@ -166,33 +166,45 @@ class BackgroundService: @unchecked Sendable {
         
         print("🎯 Foreground app: \(foregroundApp.bundleIdentifier ?? "unknown") - \(foregroundApp.localizedName ?? "unknown")")
         
-        // Only process Safari for now
-        guard foregroundApp.bundleIdentifier == "com.apple.Safari" else {
-            print("🚫 Skipping LLM analysis - only Safari is monitored currently")
+        // Only process Safari and Messages
+        guard foregroundApp.bundleIdentifier == "com.apple.Safari" || 
+              foregroundApp.bundleIdentifier == "com.apple.MobileSMS" else {
+            print("🚫 Skipping LLM analysis - only Safari and Messages are monitored currently")
             scheduleNextCycle()
             return
         }
         
-        // Capture screenshot for Safari
+        // Capture screenshot for Safari or Messages
         do {
-            let captureResult = try await screenCaptureManager.captureSafariWindow()
+            let captureResult: CaptureResult?
             
-            guard let result = captureResult else {
-                print("⚠️ Failed to capture Safari window")
-                scheduleNextCycle()
-                return
+            if foregroundApp.bundleIdentifier == "com.apple.Safari" {
+                captureResult = try await screenCaptureManager.captureSafariWindow()
+                guard let result = captureResult else {
+                    print("⚠️ Failed to capture Safari window")
+                    scheduleNextCycle()
+                    return
+                }
+                print("📸 Safari window captured: \(result.image.width)x\(result.image.height)")
+            } else {
+                // Messages app
+                captureResult = try await screenCaptureManager.captureMessagesWindow()
+                guard let result = captureResult else {
+                    print("⚠️ Failed to capture Messages window")
+                    scheduleNextCycle()
+                    return
+                }
+                print("📸 Messages window captured: \(result.image.width)x\(result.image.height)")
             }
             
-            print("📸 Safari window captured: \(result.image.width)x\(result.image.height)")
-            
             // Save debug image
-            try saveDebugImage(result.image)
+            try saveDebugImage(captureResult!.image)
             
             // Process with LLM
-            await processWithLLM(captureResult: result, appInfo: foregroundApp)
+            await processWithLLM(captureResult: captureResult!, appInfo: foregroundApp)
             
         } catch {
-            print("❌ Safari screen capture failed: \(error)")
+            print("❌ Screen capture failed for \(foregroundApp.localizedName ?? "unknown"): \(error)")
             scheduleNextCycle()
         }
     }
@@ -270,11 +282,24 @@ class BackgroundService: @unchecked Sendable {
 
             If this is YouTube, determine the specific activity:
             - "watching" if they are watching videos, browsing recommended videos, or on YouTube
-
             If this is none of the above, respond with:
             - "other"
             
             Respond with ONLY ONE WORD from these options: messaging, scrolling, posting, browsing, buying, watching, other
+            """
+        } else if appInfo.bundleIdentifier == "com.apple.MobileSMS" {
+            return """
+            Look at this Messages screenshot carefully.
+            
+            IMPORTANT: Check if you can see the name "TanTan" anywhere on the screen (in conversation list, chat header, contact name, etc.).
+            
+            If you see "TanTan" respond with:
+            - "X"
+            
+            If you do NOT see that name, respond with:
+            - "messaging"
+            
+            Respond with ONLY ONE WORD: X or messaging
             """
         } else {
             return """
@@ -291,6 +316,7 @@ class BackgroundService: @unchecked Sendable {
             - "other" for anything else
             """
         }
+        
     }
     
     private func isActivityProductive(_ activity: String) -> Bool {

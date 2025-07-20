@@ -288,6 +288,11 @@ extension ScreenCaptureManager {
         return try await captureWindow(bundleId: "com.apple.Safari")
     }
     
+    /// Captures the currently focused Messages window
+    func captureMessagesWindow() async throws -> CaptureResult? {
+        return try await captureWindow(bundleId: "com.apple.MobileSMS")
+    }
+    
     /// Captures any browser window (Safari, Chrome, Firefox, etc.)
     func captureBrowserWindow() async throws -> CaptureResult? {
         let browserBundleIds = [
