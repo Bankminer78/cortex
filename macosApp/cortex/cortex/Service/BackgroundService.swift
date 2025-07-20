@@ -525,9 +525,12 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
             return .log(config)
             
         case .browserBack:
-            let message = extractStringParameter(ruleAction.parameters["message"]) ?? 
-                         "Redirecting away from potential distraction"
-            let config = BrowserBackConfig(popupMessage: message)
+            let message = extractStringParameter(ruleAction.parameters["message"])
+            let showPopup = extractBoolParameter(ruleAction.parameters["showPopup"]) ?? false
+            let config = BrowserBackConfig(
+                popupMessage: message,
+                showPopup: showPopup
+            )
             return .browserBack(config)
             
         case .appSwitch:

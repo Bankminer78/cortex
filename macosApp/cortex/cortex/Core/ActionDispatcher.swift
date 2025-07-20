@@ -265,16 +265,19 @@ public struct CloseBrowserTabConfig {
 }
 
 public struct BrowserBackConfig {
-    let popupMessage: String
+    let popupMessage: String?
+    let showPopup: Bool
     let targetUrl: String?
     let triggerPhrases: [String]
     let safeDomains: [String]
     
-    public init(popupMessage: String = "Redirecting you away from potential distraction",
+    public init(popupMessage: String? = nil,
+         showPopup: Bool = false,
          targetUrl: String? = nil,
          triggerPhrases: [String] = ["cart", "checkout", "purchase", "buy"],
          safeDomains: [String] = []) {
         self.popupMessage = popupMessage
+        self.showPopup = showPopup
         self.targetUrl = targetUrl
         self.triggerPhrases = triggerPhrases
         self.safeDomains = safeDomains
@@ -326,7 +329,7 @@ public protocol ActionDispatcherProtocol {
     func lock(bundleId: String, duration: TimeInterval) async -> ActionResult
     func notify(title: String, body: String) async -> ActionResult
     func shieldWebsites(domains: [String], duration: TimeInterval) async -> ActionResult
-    func navigateBack(withMessage message: String) async -> ActionResult
+    func navigateBack(withMessage message: String?, showPopup: Bool) async -> ActionResult
     func switchToProductiveApp(targetApp: String?) async -> ActionResult
     func setLLMMessageGenerator(_ generator: @escaping (String, CGImage?) async throws -> String)
     func showLLMGeneratedPopup(title: String, prompt: String, contextImage: CGImage?, style: PopupStyle) async -> ActionResult
@@ -422,8 +425,8 @@ class ActionDispatcher: ActionDispatcherProtocol {
         return await executeScreenTimeShield(config)
     }
     
-    func navigateBack(withMessage message: String) async -> ActionResult {
-        let config = BrowserBackConfig(popupMessage: message)
+    func navigateBack(withMessage message: String? = nil, showPopup: Bool = false) async -> ActionResult {
+        let config = BrowserBackConfig(popupMessage: message, showPopup: showPopup)
         return await executeBrowserBack(config)
     }
     
@@ -1045,22 +1048,29 @@ class ActionDispatcher: ActionDispatcherProtocol {
             if process.terminationStatus == 0 {
                 print("🔙 Browser back navigation executed")
                 
-                // Show popup message
-                let popupConfig = PopupConfig(
-                    title: "Navigation Redirected",
-                    message: config.popupMessage,
-                    style: .warning,
-                    buttons: [.refocus, .dismiss]
-                )
+                var userResponse: PopupAction? = nil
+                var popupShown = false
                 
-                let popupResult = await showPopup(popupConfig)
+                // Show popup message only if requested
+                if config.showPopup, let message = config.popupMessage {
+                    let popupConfig = PopupConfig(
+                        title: "Navigation Redirected",
+                        message: message,
+                        style: .warning,
+                        buttons: [.refocus, .dismiss]
+                    )
+                    
+                    let popupResult = await showPopup(popupConfig)
+                    userResponse = popupResult.userResponse
+                    popupShown = true
+                }
                 
                 return ActionResult(
                     success: true,
-                    userResponse: popupResult.userResponse,
+                    userResponse: userResponse,
                     metadata: [
                         "backNavigationSuccess": true,
-                        "popupShown": true,
+                        "popupShown": popupShown,
                         "triggerPhrases": config.triggerPhrases
                     ]
                 )
@@ -1209,8 +1219,8 @@ extension ActionDispatcher {
     
     /// Executes shopping intervention (back + popup + app switch)
     func executeShoppingIntervention() async -> ActionResult {
-        // 1. Navigate back
-        let backResult = await navigateBack(withMessage: "Detected potential impulse purchase. Redirecting to help you refocus.")
+        // 1. Navigate back without popup
+        let backResult = await navigateBack(withMessage: nil, showPopup: false)
         
         // 2. Switch to productive app
         let switchResult = await switchToProductiveApp()
