@@ -29,22 +29,9 @@
 		7ACA3F302E2C56A7003D74C8 /* cortexUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cortexUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		7AE025062E2C6636000B86EC /* Exceptions for "cortex" folder in "cortex" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 7ACA3F162E2C56A6003D74C8 /* cortex */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7ACA3F192E2C56A6003D74C8 /* cortex */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				7AE025062E2C6636000B86EC /* Exceptions for "cortex" folder in "cortex" target */,
-			);
 			path = cortex;
 			sourceTree = "<group>";
 		};
