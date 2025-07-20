@@ -54,16 +54,19 @@ struct cortexApp: App {
         }
     }
     
+    // In AccountabilityAppApp.swift
+
     private func startBackgroundService() {
-        // Retrieve the rules the user just set up
-        guard let goals = goalManager.loadGoals() else {
-            print("Could not load goals to start background service.")
-            return
-        }
-        
-        // Pass the rules to the background service
-        // (We will need to add this method to BackgroundService next)
-        backgroundService.configure(with: goals.verifiableRules)
-        backgroundService.start()
+    guard let goals = goalManager.loadGoals() else {
+        print("Could not load goals to start background service.")
+        return
     }
+    
+    // OLD CODE:
+    // backgroundService.configure(with: goals.verifiableRules)
+
+    // NEW CODE: Pass the raw input string directly to the service.
+    backgroundService.configure(with: goals.rawInput)
+    backgroundService.start()
+}
 }
