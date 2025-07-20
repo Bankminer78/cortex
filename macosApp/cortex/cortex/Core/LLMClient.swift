@@ -337,20 +337,27 @@ class LLMClient: LLMClientProtocol {
               "name": "A concise name for the rule based on the user's goal",
               "type": "time_window",
               "conditions": [
-                { "field": "domain" | "activity", "operator": "==", "value": "string_value" }
+                { "field": "domain" | "activity" | "app", "operator": "==", "value": "string_value" }
               ],
               "logicalOperator": "AND" | "OR",
               "timeWindow": { "durationSeconds": 1, "lookbackSeconds": 600, "threshold": 5 },
               "actions": [
-                { "type": "popup" | "browser_back" | "app_switch", "parameters": { "message": "A helpful message for the user.", "targetApp": "AppName" } }
+                { "type": "popup" | "browser_back" | "close_browser_tab" | "app_switch", "parameters": { "message": "A helpful message for the user.", "targetApp": "AppName" } }
               ],
               "detectionInstructions": "Specific instructions for detecting activities related to this rule"
             }
 
             - For goals about websites (e.g., "youtube.com", "instagram.com"), use the "domain" field in lowercase.
             - For goals about actions, create SPECIFIC activity categories rather than generic ones. Use descriptive names like "browsing_machine_learning", "watching_music", "scrolling_instagram" instead of just "browsing", "watching", "scrolling".
+            - For goals about specific apps, use the "app" field with these supported values:
+              * "Safari" for web browser activities
+              * "Messages" for iMessage/text messaging activities
             - Analyze exceptions. For a goal like "don't scroll on instagram but messaging is fine", create a rule that targets `activity` == `scrolling_instagram` and `domain` == `instagram.com`, but does NOT block `messaging_instagram`.
-            - Choose a sensible action: 'browser_back' for immediately stopping an action, 'popup' for warnings, and 'app_switch' to redirect to a productive app like 'Notion'.
+            - Choose appropriate actions based on context:
+              * 'close_browser_tab' when user specifically mentions closing/removing tabs or when they want to completely stop a web activity
+              * 'browser_back' for redirecting away from a page but staying in the browser
+              * 'popup' for warnings and gentle reminders
+              * 'app_switch' to redirect to a productive app like 'Notion'
             - Set a reasonable timeWindow. For "don't let me use X", use a short lookbackSeconds (e.g., 10) and a low threshold (e.g., 1).
             - The action 'message' should be encouraging and relate to the user's goal.
             - The detectionInstructions should provide specific visual guidance for identifying the target domain/activity in screenshots. Focus on visual elements, UI patterns, and content analysis rather than URL parsing.
@@ -407,6 +414,39 @@ class LLMClient: LLMClientProtocol {
                     { "type": "popup", "parameters": { "message": "Remember: only music on YouTube!" } }
                 ],
                 "detectionInstructions": "Look for YouTube's red play button and video interface. Analyze the video content and context:\\n- Respond 'watching_music' if you see music videos, album covers, artist names, music-related thumbnails, or playlists with song titles\\n- Respond 'watching_videos' if you see regular video content like vlogs, tutorials, entertainment, or non-music videos\\n- Look for visual cues like music notation, instruments, concert footage, or audio waveforms to identify music content"
+            }
+
+            Example Goal: "stop me from texting my ex in Messages"
+            Example JSON:
+            {
+                "name": "Block Texting Ex",
+                "type": "time_window",
+                "conditions": [
+                    { "field": "app", "operator": "==", "value": "Messages" },
+                    { "field": "activity", "operator": "==", "value": "messaging_ex" }
+                ],
+                "logicalOperator": "AND",
+                "timeWindow": { "durationSeconds": 1, "lookbackSeconds": 5, "threshold": 1 },
+                "actions": [
+                    { "type": "app_switch", "parameters": { "targetApp": "Notion", "message": "Redirect your energy to something positive!" } }
+                ],
+                "detectionInstructions": "Look for the Messages app interface with its characteristic chat bubbles and conversation layout. Check for specific contact names or conversation patterns that suggest messaging an ex-partner. Look for names, profile pictures, or conversation context that indicates personal relationships rather than professional or family messaging. Respond 'messaging_ex' if you detect messaging with romantic ex-partners, otherwise respond 'messaging_general'."
+            }
+
+            Example Goal: "close the tab when I go to shopping sites"
+            Example JSON:
+            {
+                "name": "Close Shopping Tabs",
+                "type": "time_window",
+                "conditions": [
+                    { "field": "activity", "operator": "==", "value": "shopping_browsing" }
+                ],
+                "logicalOperator": "AND",
+                "timeWindow": { "durationSeconds": 1, "lookbackSeconds": 3, "threshold": 1 },
+                "actions": [
+                    { "type": "close_browser_tab", "parameters": { "message": "Shopping tab closed to help you save money!", "showNotification": true } }
+                ],
+                "detectionInstructions": "Look for e-commerce and shopping website interfaces: product listings, shopping carts, 'Add to Cart' buttons, price tags, product images, checkout pages, or payment forms. Common shopping sites include Amazon, eBay, Target, Walmart, etc. If you see shopping-related content, respond 'shopping_browsing', otherwise respond with the appropriate activity category."
             }
 
             Now, generate the JSON for the user's goal. Respond with ONLY the valid JSON object and nothing else.

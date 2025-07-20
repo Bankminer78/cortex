@@ -343,7 +343,7 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
             )
             
             // Debug logging
-            print("🔍 Debug - Activity: '\(activity)', Domain: '\(domain ?? "nil")', App: \(appInfo.localizedName ?? "Unknown")")
+            print("🔍 Debug - Activity: '\(activity)', Domain: '\(domain ?? "nil")', App: '\(appInfo.localizedName ?? "Unknown")', BundleID: '\(appInfo.bundleIdentifier ?? "unknown")'")
             
             // Log to database
             let recordId = try databaseManager.logActivity(activityRecord)
@@ -352,6 +352,26 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
             // Evaluate rules
             let violations = try await ruleEngine.evaluateRules(for: activityRecord, with: databaseManager)
             print("🔍 Debug - Found \(violations.count) rule violations")
+            
+            // Debug rule matching
+            let activeRules = getAllRules().filter { $0.isActive }
+            for rule in activeRules {
+                let matches = rule.conditions.allSatisfy { condition in
+                    let fieldValue: String
+                    switch condition.field {
+                    case "activity": fieldValue = activityRecord.activity
+                    case "app": fieldValue = activityRecord.app
+                    case "domain": fieldValue = activityRecord.domain ?? ""
+                    default: fieldValue = ""
+                    }
+                    let conditionValue = condition.value
+                    if case .string(let value) = conditionValue {
+                        return fieldValue == value
+                    }
+                    return false
+                }
+                print("🔍 Rule '\(rule.name)' matches: \(matches) (looking for activity='\(rule.conditions.first { $0.field == "activity" }?.value)', got '\(activityRecord.activity)')")
+            }
             
             // Dispatch actions for violations
             await handleRuleViolations(violations, captureResult: captureResult)
@@ -400,20 +420,33 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
             return prompt
             
         } else if appInfo.bundleIdentifier == "com.apple.MobileSMS" {
-            // Messages app handling remains the same for now
-            return """
+            // Messages app with dynamic detection instructions
+            var prompt = """
             Look at this Messages screenshot carefully.
             
-            IMPORTANT: Check if you can see the name "TanTan" anywhere on the screen (in conversation list, chat header, contact name, etc.).
-            
-            If you see "TanTan" respond with:
-            - "X"
-            
-            If you do NOT see that name, respond with:
-            - "messaging"
-            
-            Respond with ONLY ONE WORD: X or messaging
             """
+            
+            // Add dynamic instructions from rules if available
+            if !dynamicInstructions.isEmpty {
+                print("🎯 Using dynamic detection instructions for Messages from \(ruleEngine.getRules().count) active rules")
+                prompt += dynamicInstructions + "\n\n"
+            } else {
+                print("⚠️ No active rules with detection instructions for Messages, using fallback detection")
+                // Fallback to basic hardcoded instructions if no rules are active
+                prompt += """
+                Basic messaging activity detection:
+                - "messaging" for general messaging activities
+                - "texting" for active text conversations
+                - "other" for anything else
+                
+                """
+            }
+            
+            prompt += """
+            Respond with ONLY ONE WORD describing the primary messaging activity you observe.
+            """
+            
+            return prompt
         } else {
             // Generic app handling
             return """
