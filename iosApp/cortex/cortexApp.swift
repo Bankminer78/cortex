@@ -4,29 +4,41 @@
 //
 //  Created by Tanish Pradhan Wong Ah Sui on 7/19/25.
 //
-
 import SwiftUI
-import SwiftData
+import UserNotifications
 
 @main
-struct cortexApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+struct CortexApp: App {
+    // Get the scene phase to detect when the app goes to the background
+    @Environment(\.scenePhase) private var scenePhase
+    
+    private let backgroundTaskManager = BackgroundTaskManager()
 
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-
+    init() {
+        // Register the background task when the app initializes
+        backgroundTaskManager.registerBackgroundTask()
+        requestNotificationPermission()
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(sharedModelContainer)
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .background {
+                // Schedule the background task when the app is backgrounded
+                backgroundTaskManager.scheduleAppRefresh()
+            }
+        }
+    }
+    
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if granted {
+                print("Notification permission granted.")
+            } else if let error = error {
+                print("Notification permission error: \(error.localizedDescription)")
+            }
+        }
     }
 }
