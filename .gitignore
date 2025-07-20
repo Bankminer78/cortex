@@ -63,3 +63,6 @@ Carthage/Checkouts
 
 # If the screenshots directory is for temporary files, uncomment the line below
 # screenshots/
+qwenquantized.py
+.DS_Store
+.DS_Store

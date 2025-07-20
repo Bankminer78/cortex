@@ -8,32 +8,42 @@
 import SwiftUI
 
 struct OnboardingView: View {
-    // We get the GoalManager from the environment
-    @EnvironmentObject var goalManager: GoalManager
+    
+    @EnvironmentObject var backgroundService: BackgroundService
+    @Binding var isOnboardingComplete: Bool
+    
+    // Use AppStorage to save the goal persistently
+    @AppStorage("userGoal") private var userGoal: String = ""
     
     @State private var distractionInput: String = ""
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Set Your Goals")
+            Text("Set Your Goal")
                 .font(.largeTitle)
                 .fontWeight(.bold)
 
-            Text("Describe the apps, websites, or content you want to avoid. The app will work in the background to help you stay on track.")
+            Text("Describe what you want to avoid in a single sentence. For example, 'don't scroll on instagram but messaging is fine' or 'stop me from buying things on amazon'.")
                 .foregroundColor(.secondary)
 
             TextEditor(text: $distractionInput)
                 .font(.body)
-                .frame(height: 150)
+                .frame(height: 100)
                 .border(Color.gray.opacity(0.3), width: 1)
                 .cornerRadius(5)
             
             Button(action: {
-                // When the button is clicked, save the goals.
-                // This will trigger the change in the main app view.
-                goalManager.saveNewGoals(from: distractionInput)
+                // 1. Save the goal to persistent storage
+                self.userGoal = self.distractionInput
+                
+                // 2. Configure and start the background service
+                backgroundService.configure(with: self.userGoal)
+                backgroundService.start()
+                
+                // 3. Mark onboarding as complete to switch views
+                self.isOnboardingComplete = true
             }) {
-                Text("Save Goals and Start")
+                Text("Save Goal and Start")
                     .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
@@ -47,7 +57,16 @@ struct OnboardingView: View {
 // For previewing the view
 struct OnboardingView_Previews: PreviewProvider {
     static var previews: some View {
-        OnboardingView()
-            .environmentObject(GoalManager())
+        // Create a dummy service for the preview
+        let service: BackgroundService? = {
+            do {
+                return try BackgroundService()
+            } catch {
+                return nil
+            }
+        }()
+        
+        OnboardingView(isOnboardingComplete: .constant(false))
+            .environmentObject(service!)
     }
 }

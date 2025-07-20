@@ -5,7 +5,7 @@ import Vision
 import ScreenCaptureKit
 
 @available(macOS 14.0, *)
-class BackgroundService: @unchecked Sendable {
+class BackgroundService: ObservableObject, @unchecked Sendable {
     
     private var timer: Timer?
     private var isProcessingLLM = false
@@ -45,8 +45,6 @@ class BackgroundService: @unchecked Sendable {
             }
         }
         
-        // Add default rule
-        setupDefaultRules()
     }
     
     deinit {
@@ -56,67 +54,110 @@ class BackgroundService: @unchecked Sendable {
 
     // MARK: - Setup
     
-    private func setupDefaultRules() {
-        // Add default Instagram scrolling rule
-        let instagramRule = CompiledRule(
-            name: "Instagram Scrolling Limit",
-            type: .timeWindow,
-            conditions: [
-                RuleCondition(field: "activity", `operator`: .equal, value: .string("scrolling")),
-                RuleCondition(field: "domain", `operator`: .equal, value: .string("instagram.com"))
-            ],
-            logicalOperator: .and,
-            timeWindow: TimeWindowConfig(durationSeconds: 10, lookbackSeconds: 15, threshold: 2),
-            actions: [
-                RuleAction(type: .popup, parameters: ["message": .string("You've been scrolling Instagram too long!")])
-            ]
-        )
-        
-        // Add buying activity intervention rule - triggers if ANY buying activity detected in past 10 seconds
-        let buyingRule = CompiledRule(
-            name: "Amazon Buying Intervention",
-            type: .timeWindow,
-            conditions: [
-                RuleCondition(field: "activity", `operator`: .equal, value: .string("buying"))
-            ],
-            timeWindow: TimeWindowConfig(durationSeconds: 1, lookbackSeconds: 10, threshold: 1), // Any buying activity in past 10 seconds
-            actions: [
-                RuleAction(type: .llmPopup, parameters: [
-                    "title": .string("💳 Mindful Spending Moment"),
-                    "prompt": .string("psychology_of_spending")
-                ])
-            ]
-        )
-        
-        // Add YouTube watching intervention rule - switches to Notion when watching YouTube
-        let youtubeRule = CompiledRule(
-            name: "YouTube Watching Intervention",
-            type: .timeWindow,
-            conditions: [
-                RuleCondition(field: "activity", `operator`: .equal, value: .string("watching")),
-                RuleCondition(field: "domain", `operator`: .equal, value: .string("youtube.com"))
-            ],
-            logicalOperator: .and,
-            timeWindow: TimeWindowConfig(durationSeconds: 1, lookbackSeconds: 5, threshold: 1), // Any watching activity in past 5 seconds
-            actions: [
-                RuleAction(type: .appSwitch, parameters: ["targetApp": .string("Notion"), "message": .string("Switching to Notion to help you stay productive")])
-            ]
-        )
-        
+   
+//    private func setupDefaultRules() {
+//        // Add default Instagram scrolling rule
+//        let instagramRule = CompiledRule(
+//            name: "Instagram Scrolling Limit",
+//            type: .timeWindow,
+//            conditions: [
+//                RuleCondition(field: "activity", `operator`: .equal, value: .string("scrolling")),
+//                RuleCondition(field: "domain", `operator`: .equal, value: .string("instagram.com"))
+//            ],
+//            logicalOperator: .and,
+//            timeWindow: TimeWindowConfig(durationSeconds: 10, lookbackSeconds: 15, threshold: 2),
+//            actions: [
+//                RuleAction(type: .popup, parameters: ["message": .string("You've been scrolling Instagram too long!")])
+//            ]
+//        )
+//        
+//        // Add buying activity intervention rule - triggers if ANY buying activity detected in past 10 seconds
+//        let buyingRule = CompiledRule(
+//            name: "Amazon Buying Intervention",
+//            type: .timeWindow,
+//            conditions: [
+//                RuleCondition(field: "activity", `operator`: .equal, value: .string("buying"))
+//            ],
+//            timeWindow: TimeWindowConfig(durationSeconds: 1, lookbackSeconds: 10, threshold: 1), // Any buying activity in past 10 seconds
+//            actions: [
+//                RuleAction(type: .llmPopup, parameters: [
+//                    "title": .string("💳 Mindful Spending Moment"),
+//                    "prompt": .string("psychology_of_spending")
+//                ])
+//            ]
+//        )
+//        
+//        // Add YouTube watching intervention rule - switches to Notion when watching YouTube
+//        let youtubeRule = CompiledRule(
+//            name: "YouTube Watching Intervention",
+//            type: .timeWindow,
+//            conditions: [
+//                RuleCondition(field: "activity", `operator`: .equal, value: .string("watching")),
+//                RuleCondition(field: "domain", `operator`: .equal, value: .string("youtube.com"))
+//            ],
+//            logicalOperator: .and,
+//            timeWindow: TimeWindowConfig(durationSeconds: 1, lookbackSeconds: 5, threshold: 1), // Any watching activity in past 5 seconds
+//            actions: [
+//                RuleAction(type: .appSwitch, parameters: ["targetApp": .string("Notion"), "message": .string("Switching to Notion to help you stay productive")])
+//            ]
+//        )
+//        
+//        do {
+//            try ruleEngine.addRule(instagramRule)
+//            try ruleEngine.addRule(buyingRule)
+//            try ruleEngine.addRule(youtubeRule)
+//            print("✅ Default rules configured: Instagram scrolling + Amazon buying intervention + YouTube watching intervention")
+//        } catch {
+//            print("❌ Failed to add default rules: \(error)")
+//        }
+//    }
+    
+    private func setupRule(from goal: String) async {
+        print("⚙️ Compiling rule from natural language goal: '\(goal)'")
         do {
-            try ruleEngine.addRule(instagramRule)
-            try ruleEngine.addRule(buyingRule)
-            try ruleEngine.addRule(youtubeRule)
-            print("✅ Default rules configured: Instagram scrolling + Amazon buying intervention + YouTube watching intervention")
+            // 1. Call LLM to get JSON representation of the rule
+            let llmResponse = try await llmClient.generateRuleJSON(from: goal)
+            let ruleJSONString = llmResponse.content
+            print("🤖 LLM generated rule JSON: \(ruleJSONString)")
+
+            // 2. Decode the JSON string into a CompiledRule object
+            guard let jsonData = ruleJSONString.data(using: .utf8) else {
+                print("❌ Failed to convert JSON string to Data")
+                return
+            }
+            
+            print("jsondata \(jsonData)")
+
+                let decoder = JSONDecoder()
+                // Re-add this line for robust decoding of snake_case keys
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                    
+                do {
+                    let compiledRule = try decoder.decode(CompiledRule.self, from: jsonData)
+                    print("🔹 Decoded rule: \(compiledRule)")
+
+                    // ... (rest of the function)
+                } catch {
+                    // Added more detailed error logging
+                    if let decodingError = error as? DecodingError {
+                        print("❌ Decoding Error: \(decodingError)")
+                    }
+                    print("❌ Failed to setup rule from natural language: \(error.localizedDescription)")
+                }
+
         } catch {
-            print("❌ Failed to add default rules: \(error)")
+            print("❌ Failed to setup rule from natural language: \(error.localizedDescription)")
         }
     }
     
-    // This method is now simpler. It just takes the raw goal string.
     func configure(with goal: String) {
         self.userGoal = goal
         print("Background service configured with goal: \(self.userGoal)")
+
+        // Asynchronously set up the rule from the user's goal
+        Task {
+            await setupRule(from: goal)
+        }
     }
 
     func start() {
@@ -448,6 +489,48 @@ class BackgroundService: @unchecked Sendable {
                 switchMessage: message
             )
             return .appSwitch(config)
+            
+        case .motivationalLockScreen:
+            let title = extractStringParameter(ruleAction.parameters["title"]) ?? "✨ Focus Time"
+            let prompt = extractStringParameter(ruleAction.parameters["prompt"]) ?? "motivational_focus"
+            let duration = extractDoubleParameter(ruleAction.parameters["duration"]) ?? 300.0
+            let backgroundColor = extractStringParameter(ruleAction.parameters["backgroundColor"]) ?? "#FFB6C1"
+            let emojiIcon = extractStringParameter(ruleAction.parameters["emojiIcon"]) ?? "😊"
+            
+            let config = MotivationalLockScreenConfig(
+                title: title,
+                prompt: prompt,
+                duration: duration,
+                allowOverride: true,
+                blockedApps: [violation.triggerActivity.bundleId ?? ""],
+                backgroundColor: backgroundColor,
+                emojiIcon: emojiIcon
+            )
+            return .motivationalLockScreen(config)
+            
+        case .screenTimeShield:
+            let domains = extractArrayParameter(ruleAction.parameters["domains"]) ?? ["instagram.com"]
+            let duration = extractDoubleParameter(ruleAction.parameters["duration"]) ?? 300.0
+            let blockMessage = extractStringParameter(ruleAction.parameters["blockMessage"])
+            let allowOverride = extractBoolParameter(ruleAction.parameters["allowOverride"]) ?? false
+            
+            let config = ScreenTimeShieldConfig(
+                domains: domains,
+                duration: duration,
+                blockMessage: blockMessage,
+                allowOverride: allowOverride
+            )
+            return .screenTimeShield(config)
+            
+        case .closeBrowserTab:
+            let message = extractStringParameter(ruleAction.parameters["message"])
+            let showNotification = extractBoolParameter(ruleAction.parameters["showNotification"]) ?? true
+            
+            let config = CloseBrowserTabConfig(
+                message: message,
+                showNotification: showNotification
+            )
+            return .closeBrowserTab(config)
             
         case .webhook:
             // Default webhook configuration

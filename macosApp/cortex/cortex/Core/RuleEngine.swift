@@ -41,11 +41,14 @@ public enum RuleValue: Codable {
     case int(Int)
     case double(Double)
     case bool(Bool)
+    case array([RuleValue])
     
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         
-        if let stringValue = try? container.decode(String.self) {
+        if let arrayValue = try? container.decode([RuleValue].self) {
+            self = .array(arrayValue)
+        } else if let stringValue = try? container.decode(String.self) {
             self = .string(stringValue)
         } else if let intValue = try? container.decode(Int.self) {
             self = .int(intValue)
@@ -70,6 +73,8 @@ public enum RuleValue: Codable {
             try container.encode(value)
         case .bool(let value):
             try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
         }
     }
 }
@@ -88,6 +93,11 @@ public struct CompiledRule: Codable {
     let actions: [RuleAction]
     let priority: Int
     let isActive: Bool
+    
+    enum CodingKeys: String, CodingKey {
+            case id, name, type, conditions, actions, priority, isActive
+            case logicalOperator, timeWindow, countConfig, scheduleConfig
+        }
     
     public init(id: String = UUID().uuidString, 
          name: String, 
@@ -112,6 +122,27 @@ public struct CompiledRule: Codable {
         self.priority = priority
         self.isActive = isActive
     }
+    
+    public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            // Decode properties that are expected to be in the JSON
+            self.name = try container.decode(String.self, forKey: .name)
+            self.type = try container.decode(RuleType.self, forKey: .type)
+            self.conditions = try container.decode([RuleCondition].self, forKey: .conditions)
+            self.actions = try container.decode([RuleAction].self, forKey: .actions)
+            
+            // Decode optional properties
+            self.logicalOperator = try container.decodeIfPresent(LogicalOperator.self, forKey: .logicalOperator)
+            self.timeWindow = try container.decodeIfPresent(TimeWindowConfig.self, forKey: .timeWindow)
+            self.countConfig = try container.decodeIfPresent(CountConfig.self, forKey: .countConfig)
+            self.scheduleConfig = try container.decodeIfPresent(ScheduleConfig.self, forKey: .scheduleConfig)
+            
+            // Decode properties that might be missing, providing default values
+            self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+            self.priority = try container.decodeIfPresent(Int.self, forKey: .priority) ?? 0
+            self.isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+        }
 }
 
 public struct TimeWindowConfig: Codable {
@@ -160,6 +191,9 @@ public enum ActionType: String, Codable {
     case llmPopup = "llm_popup"
     case notification = "notification"
     case block = "block"
+    case motivationalLockScreen = "motivational_lock_screen"
+    case screenTimeShield = "screen_time_shield"
+    case closeBrowserTab = "close_browser_tab"
     case webhook = "webhook"
     case log = "log"
     case browserBack = "browser_back"
@@ -189,7 +223,6 @@ public protocol RuleEngineProtocol {
     func removeRule(id: String) throws
     func getRules() -> [CompiledRule]
     func evaluateRules(for activity: ActivityRecord, with database: DatabaseManagerProtocol) async throws -> [RuleViolation]
-    func compileRule(from naturalLanguage: String, using llmClient: LLMClientProtocol) async throws -> CompiledRule
 }
 
 // MARK: - RuleEngine Implementation
@@ -298,6 +331,9 @@ class RuleEngine: RuleEngineProtocol {
             return compareNumbers(Double(fieldValue) ?? 0, condition.`operator`, value)
         case .bool(let value):
             return compareBools(Bool(fieldValue) ?? false, condition.`operator`, value)
+        case .array(_):
+            // Array comparison not supported for field conditions
+            return false
         }
     }
     
@@ -489,45 +525,7 @@ class RuleEngine: RuleEngineProtocol {
     
     // MARK: - Natural Language Compilation
     
-    func compileRule(from naturalLanguage: String, using llmClient: LLMClientProtocol) async throws -> CompiledRule {
-        // This would use the LLM to convert natural language to rule JSON
-        // For now, return a simple implementation
-        
-        // Example: "Don't let me watch YouTube Shorts for more than 5 minutes per hour"
-        // Would become a time window rule
-        
-        let prompt = """
-        Convert this natural language rule into a structured JSON rule:
-        "\(naturalLanguage)"
-        
-        Return only valid JSON in this format:
-        {
-            "name": "rule name",
-            "type": "time_window|count|schedule|combo",
-            "conditions": [
-                {"field": "activity|app|domain|bundle_id", "operator": ">|<|==|>=|<=", "value": "value"}
-            ],
-            "logicalOperator": "AND|OR",
-            "timeWindow": {"durationSeconds": 300, "lookbackSeconds": 3600, "threshold": 1},
-            "actions": [{"type": "popup", "parameters": {"message": "Stop watching!"}}]
-        }
-        """
-        
-        // For now, create a default Instagram scrolling rule
-        let defaultRule = CompiledRule(
-            name: "Instagram Scrolling Limit",
-            type: .timeWindow,
-            conditions: [
-                RuleCondition(field: "activity", operator: .equal, value: .string("instagram_scrolling"))
-            ],
-            timeWindow: TimeWindowConfig(durationSeconds: 10, lookbackSeconds: 15, threshold: 2),
-            actions: [
-                RuleAction(type: .popup, parameters: ["message": .string("You've been scrolling Instagram too long!")])
-            ]
-        )
-        
-        return defaultRule
-    }
+    
 }
 
 // MARK: - Error Types

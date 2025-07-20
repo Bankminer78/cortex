@@ -53,10 +53,6 @@ public protocol DatabaseManagerProtocol {
     func logActivity(_ record: ActivityRecord) throws -> Int
     func getRecentActivities(limit: Int) throws -> [ActivityRecord]
     func getActivitiesInTimeRange(from: Double, to: Double) throws -> [ActivityRecord]
-    func addRule(_ rule: Rule) throws -> Int
-    func getRules(activeOnly: Bool) throws -> [Rule]
-    func updateRule(id: Int, isActive: Bool) throws
-    func deleteRule(id: Int) throws
     func close()
 }
 
@@ -350,123 +346,7 @@ class DatabaseManager: DatabaseManagerProtocol {
         return activities
     }
     
-    // MARK: - Rule Operations
     
-    func addRule(_ rule: Rule) throws -> Int {
-        let insertSQL = """
-            INSERT INTO rules (name, natural_language, rule_json, is_active, created_at) 
-            VALUES (?, ?, ?, ?, ?)
-        """
-        
-        var statement: OpaquePointer?
-        
-        guard sqlite3_prepare_v2(db, insertSQL, -1, &statement, nil) == SQLITE_OK else {
-            throw DatabaseError.preparationFailed
-        }
-        
-        defer { sqlite3_finalize(statement) }
-        
-        rule.name.withCString { cString in
-            sqlite3_bind_text(statement, 1, cString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        }
-        
-        rule.naturalLanguage.withCString { cString in
-            sqlite3_bind_text(statement, 2, cString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        }
-        
-        rule.ruleJSON.withCString { cString in
-            sqlite3_bind_text(statement, 3, cString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        }
-        
-        sqlite3_bind_int(statement, 4, rule.isActive ? 1 : 0)
-        sqlite3_bind_double(statement, 5, rule.createdAt)
-        
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw DatabaseError.insertFailed
-        }
-        
-        let insertedId = Int(sqlite3_last_insert_rowid(db))
-        
-        print("📜 Rule added: [\(rule.name)] ID=\(insertedId)")
-        
-        return insertedId
-    }
-    
-    func getRules(activeOnly: Bool = true) throws -> [Rule] {
-        let selectSQL: String
-        if activeOnly {
-            selectSQL = """
-                SELECT id, name, natural_language, rule_json, is_active, created_at 
-                FROM rules 
-                WHERE is_active = 1 
-                ORDER BY created_at DESC
-            """
-        } else {
-            selectSQL = """
-                SELECT id, name, natural_language, rule_json, is_active, created_at 
-                FROM rules 
-                ORDER BY created_at DESC
-            """
-        }
-        
-        var statement: OpaquePointer?
-        
-        guard sqlite3_prepare_v2(db, selectSQL, -1, &statement, nil) == SQLITE_OK else {
-            throw DatabaseError.preparationFailed
-        }
-        
-        defer { sqlite3_finalize(statement) }
-        
-        var rules: [Rule] = []
-        
-        while sqlite3_step(statement) == SQLITE_ROW {
-            let rule = try parseRule(from: statement)
-            rules.append(rule)
-        }
-        
-        return rules
-    }
-    
-    func updateRule(id: Int, isActive: Bool) throws {
-        let updateSQL = "UPDATE rules SET is_active = ? WHERE id = ?"
-        
-        var statement: OpaquePointer?
-        
-        guard sqlite3_prepare_v2(db, updateSQL, -1, &statement, nil) == SQLITE_OK else {
-            throw DatabaseError.preparationFailed
-        }
-        
-        defer { sqlite3_finalize(statement) }
-        
-        sqlite3_bind_int(statement, 1, isActive ? 1 : 0)
-        sqlite3_bind_int(statement, 2, Int32(id))
-        
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw DatabaseError.updateFailed
-        }
-        
-        print("📜 Rule \(id) updated: active=\(isActive)")
-    }
-    
-    func deleteRule(id: Int) throws {
-        let deleteSQL = "DELETE FROM rules WHERE id = ?"
-        
-        var statement: OpaquePointer?
-        
-        guard sqlite3_prepare_v2(db, deleteSQL, -1, &statement, nil) == SQLITE_OK else {
-            throw DatabaseError.preparationFailed
-        }
-        
-        defer { sqlite3_finalize(statement) }
-        
-        sqlite3_bind_int(statement, 1, Int32(id))
-        
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw DatabaseError.deleteFailed
-        }
-        
-        print("📜 Rule \(id) deleted")
-    }
     
     // MARK: - Parsing Helpers
     
