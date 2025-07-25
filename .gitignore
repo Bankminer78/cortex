@@ -44,6 +44,8 @@ xcuserdata/
 build/
 Build/
 DerivedData/
+dist/
+node_modules/
 
 # Swift Package Manager
 # Package.resolved can be committed to lock dependencies,
@@ -64,5 +66,85 @@ Carthage/Checkouts
 # If the screenshots directory is for temporary files, uncomment the line below
 # screenshots/
 qwenquantized.py
-.DS_Store
-.DS_Store
+
+### Tauri + React + Chrome Extension ###
+
+# Node.js dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Tauri specific
+src-tauri/target/
+src-tauri/gen/
+tauri/src-tauri/target/
+tauri/src-tauri/gen/
+**/src-tauri/target/
+**/src-tauri/gen/
+
+# Rust build artifacts
+Cargo.lock
+**/*.rs.bk
+
+# React/Vite build outputs
+dist/
+.vite/
+dist-ssr/
+*.local
+
+# Environment variables and secrets
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+**/secrets/
+**/*secret*
+**/*key*
+**/*token*
+!**/public_key*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+cortex.db
+
+# Chrome extension artifacts
+browser-extension/dist/
+browser-extension/build/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Test and coverage
+coverage/
+test-results/
+playwright-report/
+.nyc_output/
+
+# Cache directories
+.cache/
+.parcel-cache/
+.rpt2_cache/
+.rts2_cache_*/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+*.orig
+*.rej

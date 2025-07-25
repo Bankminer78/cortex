@@ -1,31 +1,37 @@
 {
   "images" : [
     {
+      "filename" : "Screenshot 2025-07-20 at 3.11.12 PM.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "16x16"
     },
     {
+      "filename" : "Screenshot 2025-07-20 at 3.11.12 PM 1.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "16x16"
     },
     {
+      "filename" : "Screenshot 2025-07-20 at 3.11.12 PM 2.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "32x32"
     },
     {
+      "filename" : "Screenshot 2025-07-20 at 3.11.12 PM 3.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "32x32"
     },
     {
+      "filename" : "Screenshot 2025-07-20 at 3.11.12 PM 4.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "128x128"
     },
     {
+      "filename" : "Screenshot 2025-07-20 at 3.11.12 PM 5.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "128x128"

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            width: 300px;
+            padding: 16px;
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .logo {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1f2937;
+            margin-bottom: 4px;
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        
+        .status.active {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status.inactive {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        
+        .status.active .status-dot {
+            background-color: #10b981;
+            animation: pulse 2s infinite;
+        }
+        
+        .status.inactive .status-dot {
+            background-color: #ef4444;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-bottom: 8px;
+        }
+        
+        .btn-primary {
+            background-color: #3b82f6;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: #2563eb;
+        }
+        
+        .btn-secondary {
+            background-color: #f3f4f6;
+            color: #374151;
+            border: 1px solid #d1d5db;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #e5e7eb;
+        }
+        
+        .activity-log {
+            border-top: 1px solid #e5e7eb;
+            padding-top: 16px;
+        }
+        
+        .activity-log h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin: 0 0 12px 0;
+        }
+        
+        .activity-item {
+            background-color: #f9fafb;
+            border-radius: 4px;
+            padding: 8px;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        
+        .activity-domain {
+            font-weight: 600;
+            color: #1f2937;
+        }
+        
+        .activity-type {
+            color: #6b7280;
+            margin-top: 2px;
+        }
+        
+        .activity-time {
+            color: #9ca3af;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            color: #6b7280;
+            font-size: 12px;
+            font-style: italic;
+            padding: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">Cortex Accountability</div>
+    </div>
+    
+    <div class="status" id="status">
+        <div class="status-dot"></div>
+        <span id="status-text">Checking...</span>
+    </div>
+    
+    <div class="controls">
+        <button class="btn btn-primary" id="toggle-btn">
+            Toggle Monitoring
+        </button>
+        <button class="btn btn-secondary" id="open-app-btn">
+            Open Main App
+        </button>
+    </div>
+    
+    <div class="activity-log">
+        <h3>Recent Activity</h3>
+        <div id="activity-list">
+            <div class="empty-state">Loading...</div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

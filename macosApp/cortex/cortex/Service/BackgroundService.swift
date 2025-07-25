@@ -200,6 +200,14 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
     func clearAllRulesOnStartup() {
         ruleEngine.clearAllRules()
     }
+    
+    func enableLlavaDebug() {
+        llmClient.configureDebugMode(enabled: true)
+    }
+    
+    func enableLocalImages() {
+        llmClient.configureLocalImages(enabled: true)
+    }
 
     func start() {
         stop()
@@ -389,9 +397,15 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
         let dynamicInstructions = getCombinedDetectionInstructions()
         
         if appInfo.bundleIdentifier == "com.apple.Safari" {
-            // Base prompt for Safari
+            // Enhanced prompt for Safari with better context
             var prompt = """
-            Look at this screenshot and identify what the user is doing.
+            This is a Safari browser screenshot. Analyze the content and UI elements to determine what the user is doing.
+            
+            First, observe these key details:
+            - What website/domain is this? (look for URLs, logos, distinctive design)
+            - What type of content is displayed? (feed, videos, articles, products, messages)
+            - What UI elements are visible? (scroll bars, like buttons, shopping carts, video players)
+            - What user interaction patterns are suggested? (infinite scroll, browsing, purchasing, messaging)
             
             """
             
@@ -401,28 +415,35 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
                 prompt += dynamicInstructions + "\n\n"
             } else {
                 print("⚠️ No active rules with detection instructions, using fallback detection")
-                // Fallback to basic hardcoded instructions if no rules are active
+                // Enhanced fallback with more context
                 prompt += """
-                Basic activity detection:
-                - "browsing" for general web browsing
-                - "watching" for video content
-                - "social" for social media activities
-                - "shopping" for e-commerce activities
-                - "other" for anything else
+                Based on your analysis, classify the activity:
+                - "browsing" - general web browsing, reading articles, exploring sites
+                - "watching" - video content, YouTube, streaming services  
+                - "scrolling" - social media feeds, infinite scroll interfaces
+                - "shopping" - e-commerce sites, product pages, shopping carts
+                - "messaging" - web-based messaging, chat interfaces
+                - "other" - anything else
                 
                 """
             }
             
             prompt += """
-            Respond with ONLY ONE WORD describing the primary activity you observe.
+            Think about what you see, then respond with ONLY ONE WORD describing the primary activity.
             """
             
             return prompt
             
         } else if appInfo.bundleIdentifier == "com.apple.MobileSMS" {
-            // Messages app with dynamic detection instructions
+            // Enhanced Messages prompt with better context
             var prompt = """
-            Look at this Messages screenshot carefully.
+            This is a Messages app screenshot. Analyze the interface and conversation details.
+            
+            First, observe these key details:
+            - What conversations are visible? (contact names, profile pictures)
+            - Is this the conversation list or an active chat?
+            - What type of messaging activity is happening? (typing, reading, browsing contacts)
+            - Are there any specific contact names that stand out?
             
             """
             
@@ -432,18 +453,19 @@ class BackgroundService: ObservableObject, @unchecked Sendable {
                 prompt += dynamicInstructions + "\n\n"
             } else {
                 print("⚠️ No active rules with detection instructions for Messages, using fallback detection")
-                // Fallback to basic hardcoded instructions if no rules are active
+                // Enhanced fallback for Messages
                 prompt += """
-                Basic messaging activity detection:
-                - "messaging" for general messaging activities
-                - "texting" for active text conversations
-                - "other" for anything else
+                Based on your analysis, classify the messaging activity:
+                - "messaging" - general messaging, reading or sending texts
+                - "browsing_contacts" - looking through conversation list
+                - "typing" - actively composing a message
+                - "other" - anything else
                 
                 """
             }
             
             prompt += """
-            Respond with ONLY ONE WORD describing the primary messaging activity you observe.
+            Think about what you see, then respond with ONLY ONE WORD describing the primary messaging activity.
             """
             
             return prompt

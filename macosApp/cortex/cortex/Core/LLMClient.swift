@@ -36,9 +36,12 @@ class LLMClient: LLMClientProtocol {
     
     private var currentProvider: LLMProvider = .openRouter
     private var apiKey: String?
+    private var useLocalForImages: Bool = false
+    private var debugMode: Bool = false
+    private var useChainOfThought: Bool = false
     
     init() {
-        // Auto-configure based on available API keys
+        // Auto-configure based on available API keys and local model availability
         autoConfigureProvider()
     }
     
@@ -50,16 +53,46 @@ class LLMClient: LLMClientProtocol {
         print("🔧 LLMClient configured for provider: \(provider)")
     }
     
+    func configureLocalImages(enabled: Bool) {
+        self.useLocalForImages = enabled
+        if enabled {
+            print("🦙 Local Llava enabled for image analysis")
+        } else {
+            print("☁️ Using online providers for image analysis")
+        }
+    }
+    
+    func configureDebugMode(enabled: Bool) {
+        self.debugMode = enabled
+        if enabled {
+            print("🔍 Debug mode enabled - will show Llava's image interpretation")
+        } else {
+            print("🔍 Debug mode disabled")
+        }
+    }
+    
     func analyze(image: CGImage, prompt: String) async throws -> LLMResponse {
-        print("🤖 Starting LLM analysis with \(currentProvider)")
-        
-        switch currentProvider {
-        case .openAI:
-            return try await callOpenAI(image: image, prompt: prompt)
-        case .openRouter:
-            return try await callOpenRouter(image: image, prompt: prompt)
-        case .local(let model):
-            return try await callLocal(image: image, prompt: prompt, model: model)
+        // Use local Llava for image analysis if available, otherwise use configured provider
+        if useLocalForImages {
+            print("🦙 Using Ollama Llava for local image analysis")
+            do {
+                return try await callOllama(image: image, prompt: prompt, model: "llava")
+            } catch {
+                print("⚠️ Ollama failed, falling back to online provider: \(error)")
+                useLocalForImages = false  // Disable for this session
+                return try await analyze(image: image, prompt: prompt)  // Retry with online
+            }
+        } else {
+            print("☁️ Using online provider \(currentProvider) for image analysis")
+            
+            switch currentProvider {
+            case .openAI:
+                return try await callOpenAI(image: image, prompt: prompt)
+            case .openRouter:
+                return try await callOpenRouter(image: image, prompt: prompt)
+            case .local(let model):
+                return try await callLocal(image: image, prompt: prompt, model: model)
+            }
         }
     }
     
@@ -75,6 +108,32 @@ class LLMClient: LLMClientProtocol {
             // Fallback to local model
             configure(provider: .local(model: "llava"))
             print("⚠️ No API keys found, falling back to local model")
+        }
+        
+        // Check if we should use local images (from environment or auto-detect)
+        if let useLocalEnv = loadAPIKey("USE_LOCAL_IMAGES"), useLocalEnv.lowercased() == "true" {
+            useLocalForImages = true
+            print("🦙 USE_LOCAL_IMAGES=true - enabling local Llava for image analysis")
+        } else {
+            // Auto-detect Ollama availability for image analysis
+            Task {
+                if await checkOllamaAvailability() {
+                    useLocalForImages = true
+                    print("🦙 Ollama detected - using local Llava for image analysis")
+                }
+            }
+        }
+        
+        // Check if debug mode should be enabled
+        if let debugEnv = loadAPIKey("DEBUG_LLAVA"), debugEnv.lowercased() == "true" {
+            debugMode = true
+            print("🔍 DEBUG_LLAVA=true - enabling Llava debug mode")
+        }
+        
+        // Check if chain-of-thought mode should be enabled
+        if let cotEnv = loadAPIKey("LLAVA_CHAIN_OF_THOUGHT"), cotEnv.lowercased() == "true" {
+            useChainOfThought = true
+            print("🧠 LLAVA_CHAIN_OF_THOUGHT=true - enabling thinking process")
         }
     }
     
@@ -106,6 +165,43 @@ class LLMClient: LLMClientProtocol {
             }
         }
         return nil
+    }
+    
+    private func checkOllamaAvailability() async -> Bool {
+        do {
+            let url = URL(string: "http://localhost:11434/api/tags")!
+            let (data, response) = try await URLSession.shared.data(from: url)
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                return false
+            }
+            
+            // Check if Llava model is available
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let models = json["models"] as? [[String: Any]] {
+                
+                let hasLlava = models.contains { model in
+                    if let name = model["name"] as? String {
+                        return name.lowercased().contains("llava")
+                    }
+                    return false
+                }
+                
+                if hasLlava {
+                    print("🦙 Found Llava model in Ollama")
+                    return true
+                } else {
+                    print("⚠️ Ollama running but no Llava model found. Run: ollama pull llava")
+                    return false
+                }
+            }
+            
+            return false
+        } catch {
+            print("🔍 Ollama not detected on localhost:11434")
+            return false
+        }
     }
     
     // MARK: - OpenAI Implementation
@@ -248,17 +344,44 @@ class LLMClient: LLMClientProtocol {
     // MARK: - Local Model Implementation
     
     private func callLocal(image: CGImage, prompt: String, model: String) async throws -> LLMResponse {
+        // Legacy local model call - keeping for backward compatibility
+        return try await callOllama(image: image, prompt: prompt, model: model)
+    }
+    
+    // MARK: - Ollama Implementation
+    
+    private func callOllama(image: CGImage, prompt: String, model: String) async throws -> LLMResponse {
         let base64Image = try convertImageToBase64(image)
         
-        let url = URL(string: "http://localhost:11434/api/generate")!
+        // If debug mode is enabled, first ask Llava to describe what it sees
+        if debugMode {
+            let debugResponse = try await callOllamaDebug(base64Image: base64Image, model: model)
+            print("🔍 LLAVA DEBUG - What Llava sees in the image:")
+            print("🔍 \(debugResponse)")
+            print("🔍 Now asking Llava to classify with prompt: \(prompt)")
+        }
+        
+        // Modify prompt for chain-of-thought mode
+        let finalPrompt = if useChainOfThought {
+            prompt + "\n\nThink step by step: First describe what you see, then give your one-word classification at the end after 'ANSWER:'."
+        } else {
+            prompt
+        }
+        
+        let url = URL(string: "http://localhost:11434/api/chat")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let payload: [String: Any] = [
             "model": model,
-            "prompt": prompt,
-            "images": [base64Image],
+            "messages": [
+                [
+                    "role": "user",
+                    "content": finalPrompt,
+                    "images": [base64Image]
+                ]
+            ],
             "stream": false
         ]
         
@@ -272,20 +395,104 @@ class LLMClient: LLMClientProtocol {
         }
         
         guard httpResponse.statusCode == 200 else {
+            let errorBody = String(data: data, encoding: .utf8) ?? "No error body"
+            print("❌ Ollama HTTP Error: \(httpResponse.statusCode), Body: \(errorBody)")
             throw LLMError.httpError(httpResponse.statusCode)
         }
         
         let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         
-        guard let content = jsonResponse?["response"] as? String else {
+        guard let message = jsonResponse?["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            print("❌ Ollama Parse Error: \(String(data: data, encoding: .utf8) ?? "No data")")
             throw LLMError.parseError
         }
         
+        // Extract final answer from chain-of-thought response
+        let finalContent = if useChainOfThought {
+            extractAnswerFromChainOfThought(content)
+        } else {
+            content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        // Clean up escaped characters from Llava responses
+        let cleanedContent = finalContent.replacingOccurrences(of: "\\_", with: "_")
+        
+        if debugMode {
+            print("🔍 LLAVA RESPONSE: \(content)")
+            if useChainOfThought {
+                print("🔍 EXTRACTED ANSWER: \(finalContent)")
+            }
+            print("🧹 CLEANED CONTENT: \(cleanedContent)")
+        }
+        
         return LLMResponse(
-            content: content,
+            content: cleanedContent,
             provider: .local(model: model),
             tokenUsage: nil // Local models don't report token usage
         )
+    }
+    
+    // Debug helper function to see what Llava thinks is in the image
+    private func callOllamaDebug(base64Image: String, model: String) async throws -> String {
+        let url = URL(string: "http://localhost:11434/api/chat")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let debugPrompt = "Describe what you see in this screenshot. Be detailed about any text, UI elements, apps, and activities you can identify."
+        
+        let payload: [String: Any] = [
+            "model": model,
+            "messages": [
+                [
+                    "role": "user",
+                    "content": debugPrompt,
+                    "images": [base64Image]
+                ]
+            ],
+            "stream": false
+        ]
+        
+        let jsonData = try JSONSerialization.data(withJSONObject: payload)
+        request.httpBody = jsonData
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            return "Debug call failed"
+        }
+        
+        guard let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = jsonResponse["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            return "Debug parse failed"
+        }
+        
+        return content
+    }
+    
+    // Extract the final answer from chain-of-thought response
+    private func extractAnswerFromChainOfThought(_ content: String) -> String {
+        // Look for "ANSWER:" pattern
+        if let answerRange = content.range(of: "ANSWER:", options: .caseInsensitive) {
+            let answerPart = String(content[answerRange.upperBound...])
+            let cleanAnswer = answerPart.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Get just the first word after ANSWER:
+            let firstWord = cleanAnswer.components(separatedBy: .whitespaces).first ?? cleanAnswer
+            return firstWord.lowercased().replacingOccurrences(of: "\\_", with: "_")
+        }
+        
+        // Fallback: try to extract the last single word from the response
+        let words = content.components(separatedBy: .whitespaces)
+        if let lastWord = words.last?.trimmingCharacters(in: .punctuationCharacters),
+           lastWord.count < 30 { // Reasonable length for a classification
+            return lastWord.lowercased().replacingOccurrences(of: "\\_", with: "_")
+        }
+        
+        // Final fallback: return trimmed content
+        return content.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "\\_", with: "_")
     }
     
     // MARK: - Utility Methods
